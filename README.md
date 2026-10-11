@@ -264,7 +264,10 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   night for the coastline check, the HRRR hour for comparison; expected values
   in its header), `goes_source_test.txt` (the GOES-19 scans of the weather
   service at *Satellite observed*: replays, the previous hour / day, a moved
-  box, idle at *Layers + wind*, live), `regression.txt`.
+  box, idle at *Layers + wind*, live), `goes_test.txt` (HRRR alone vs HRRR
+  corrected by GOES-19: a night and a day case from 700 km, 30 km and the
+  harbour, the levels picked in the Quality combo, the field images of both;
+  replays `--offline`), `regression.txt`.
   Screenshots include the HUD and the panel (`--hud 0`, `--panel 0` or
   `set panel off` for clean scene shots). The clouds are the live weather unless
   `--weather-time` / `weather` pins a time (`--no-clouds` or `set clouds off`

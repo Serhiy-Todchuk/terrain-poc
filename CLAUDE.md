@@ -5,7 +5,7 @@ the app renders a merged **land + seabed** surface of the New York harbor with
 satellite imagery, extruded OSM buildings, an engine-rendered sea surface,
 georeferenced test vessels and live cloud layers from NOAA HRRR (low / middle / high,
 wind drift, cloud shadows; weather date / time, optional sun at that time; plan and
-status: `docs\weather_roadmap.md`, steps 1–2 done, step 3 (GOES-19 observed clouds) done but its comparison script). It is the *online* variant of the PoC described in
+status: `docs\weather_roadmap.md`, steps 1–3 done (3 = GOES-19 observed clouds), next: step 4 (volumetric clouds)). It is the *online* variant of the PoC described in
 `nyc_geospatial_terrain_poc.md` (D:\Downloads): terrain tiles are generated at
 run time from public web services — **no Cesium ion, no API keys**.
 POI / start view: lon −74.00753296050705, lat 40.66004718826513 (Bush Terminal
@@ -602,7 +602,14 @@ landmark crosses; 13 + 4 MB once; expected values in its header; run with `--no-
 --no-buildings`), `goes_source_test.txt` (the GOES source at *Satellite observed*: 00:05 →
 the 00:01 scan with goes_nav_test's values and images, 00:00 → 23:56 of the previous
 day, the Boston box from the cached files, no requests at *Layers + wind*, live; ~13 MB
-once, then everything but live replays `--offline`; run with `--no-terrain --no-buildings`).
+once, then everything but live replays `--offline`; run with `--no-terrain --no-buildings`),
+`goes_test.txt` (HRRR vs HRRR + GOES-19, step 3 item 6: 2026-10-11 00:05 (night, high
+deck of the 00:01 scan) and 2026-10-10 17:05 (day, COD of the 17:01 scan) from 700 km /
+30 km / the harbour at *Layers + wind* vs *Satellite observed* (+ *Simple shell* at 30 km),
+every level picked with real clicks in the Quality combo, the panel hidden for the
+shots; `cloudfields` + `goes` PNGs; switching back reuses the corrections (6 blend lines
+in all), 17:20 takes the 17:16 scan; run `--offline` (all cached; data PNGs
+byte-identical to the online run); expected blend lines in its header).
 Shots include the HUD and the panel (`--panel 0` / `set panel off` for clean scenes).
 
 Exit codes: 0 ok, 1 init failure, 2 bad arguments / `--help`, 3 a `wait` timed out; crash =
@@ -646,11 +653,11 @@ runs at ~15–30 fps while loading.
 
 - Weather: steps 1–2 of `docs\weather_roadmap.md` are done (HRRR low / middle / high
   shells at per-cell altitudes, wind drift, time blending, cheap cloud shadows, date /
-  time UI, sun at the weather time); step 3 (GOES-19 observed clouds) is done but its
-  comparison script (done: cloud quality combo, `Hdf5` reader, fixed-grid navigation +
-  parallax correction (`GoesGrid`), `GoesSource` (scans at the level *Satellite
-  observed*), the blend into the HRRR layers (`CloudBlend`); next: `goes_test.txt`), then
-  volumetric clouds and lighting.
+  time UI, sun at the weather time); step 3 (GOES-19 observed clouds) is done (cloud
+  quality combo, `Hdf5` reader, fixed-grid navigation + parallax correction (`GoesGrid`),
+  `GoesSource` (scans at the level *Satellite observed*), the blend into the HRRR layers
+  (`CloudBlend`), the comparison script `goes_test.txt`); next: step 4, volumetric
+  clouds, then lighting.
 
 - Known: no tides (sea at NAVD88 0); pier decks absent in bare-earth lidar; Esri
   imagery terms for production (USGS alternative is ~2 m); first visit to an area is

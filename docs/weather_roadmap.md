@@ -1,10 +1,11 @@
 # Live Weather / Clouds — Roadmap and Plan
 
-Status (2026-10-11): **steps 1 and 2 implemented**, step 3 (GOES-19) nearly done
-(data facts, decision and plan in [Step 3](#step-3--goes-19-observed-clouds); done:
-quality combo, HDF5 reader, fixed-grid navigation + parallax correction, the
-GOES source in the weather service, the blend into the HRRR layers; left: the
-comparison script `goes_test.txt`) — see
+Status (2026-10-11): **steps 1, 2 and 3 implemented** (step 3 = GOES-19:
+data facts, decision, plan and as built in
+[Step 3](#step-3--goes-19-observed-clouds): quality combo, HDF5 reader,
+fixed-grid navigation + parallax correction, the GOES source in the weather
+service, the blend into the HRRR layers, the comparison script
+`goes_test.txt`); next: [step 4](#step-4--procedural-volumetric-clouds) — see
 [Step 1 — as built](#step-1--as-built) and
 [Step 2 — as built](#step-2--height-aware-layers-motion-shadows-as-built)
 (low / middle / high layers at their own altitudes, wind drift, time blending,
@@ -12,7 +13,7 @@ cheap cloud shadows; plus the weather date / time UI and the sun at that time).
 2026-10-11: three of the step-2 limits lifted — the wind is a field (per cell,
 semi-Lagrangian blend and noise drift), the layers are slabs with thickness
 (sampled along the path inside them), the weather box is four times larger
-(≈ 1200 × 1130 km). Steps 3–6 are the plan.
+(≈ 1200 × 1130 km). Steps 4–6 are the plan.
 
 ## Goal
 
@@ -448,6 +449,7 @@ component the PoC does not have), THREDDS (above).
    optical depth only — cover and tops are infrared products, valid day and
    night).
 6. `goes_test.txt`: HRRR vs GOES shots through the quality combo.
+   **Done 2026-10-11** (below).
 
 **HDF5 reader — as built** (2026-10-11; `src/Hdf5.*`, ~1300 lines, pure C++):
 
@@ -685,6 +687,30 @@ is unchanged (`CloudFields` stays the only type it sees).
   the column's optical depth but goes to the uppermost layer only (multi-layer
   columns get thicker); the 10 km bands make the cover observed, not sharper —
   only the 2 km mask sharpens edges; `TCF` and the `DQF` flags are not used.
+
+**Comparison script — as built** (plan item 6, 2026-10-11;
+`scripts/goes_test.txt`, run `--offline` once the hours and scans are cached):
+
+- Two cases: 2026-10-11 00:05 (night, the high deck of the 00:01 scan, no COD)
+  and 2026-10-10 17:05 (day, the 17:01 scan, COD on ~80 % of the box). Each from
+  700 km (the whole box), 30 km over the harbour and the water (vessel's eye),
+  at *Layers + wind* (HRRR alone) and *Satellite observed*, plus *Simple shell*
+  at 30 km. Every level is picked with real clicks in the Time & weather tab's
+  Quality combo; the panel is shown for the clicks and hidden for the shots.
+- Per case `cloudfields` at both levels (`fields_<valid>_hrrr_*` vs
+  `fields_<valid>_goes<hhmm>_*`) and `goes` (the scan itself), so the scene
+  shots compare with the fields cell by cell.
+- Checks: exactly one blend line per HRRR hour and scan (6 in all — switching
+  away from *Satellite observed* and back reuses the corrections); 17:20 takes
+  the 17:16 scan and corrects 17z / 18z again; the offline replay logs the same
+  values and writes byte-identical field / scan images; 0 errors, 0 warnings.
+- What the shots show: night — HRRR leaves a large gap over the harbour, the
+  observed deck (high 54 → 82 %) closes most of it, the high slab ends at
+  ~10 km; day — HRRR is nearly clear over New York with a few cumulus, the
+  observed deck covers the city and Long Island (high 35 → 67 %, low 6 →
+  15 %), the thick system in the south-west gets COD's τ 20–40. The dark dashes
+  in the corrected high cover are clear pixels of the 2 km `BCM`, not blend
+  artefacts.
 
 **UI — cloud quality levels** (requested 2026-10-11): step 3 replaces the
 *Single layer (step-1 look)* checkbox with a combo box of cloud quality levels

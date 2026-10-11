@@ -1,0 +1,157 @@
+# GOES-19 observed clouds against the HRRR model (docs/weather_roadmap.md step 3,
+# plan item 6): the same views at the cloud quality levels Layers + wind (HRRR
+# alone), Satellite observed (each HRRR hour corrected by the GOES-19 scan of the
+# weather time, src/CloudBlend.*) and Simple shell, every level picked in the
+# Time & weather tab's Quality combo (real clicks; the panel is hidden for the
+# shots). A night case (a high deck, no optical depth from COD), a day case (COD),
+# scrubbing to the next scan, switching back and forth (corrections reused).
+# Needs the network once (HRRR 2026-10-10 17z / 18z and 2026-10-11 00z / 01z;
+# GOES-19 scans 2026-10-10 17:01 / 17:16 and 2026-10-11 00:01, ~9 MB each); then
+# it replays with --offline.
+# Run: TerrainPOC.exe --script ..\..\scripts\goes_test.txt --shot-dir ..\..\shots\goes --offline
+# Expected log (one "Clouds: HRRR ... + GOES-19 scan ... -> valid ..." line per
+# hour and scan):
+#   00:05 (night, scan 00:01): 00z high 54 -> 82 %, middle 33 -> 38 %, low 12 ->
+#   15 %, observed from above 11 / 18 / 100 %, tops set 0 / 4 / 78 %, COD 0 %
+#   (daylight 0 %); 01z (the deck carried +59 min east) high 52 -> 83 %.
+#   17:05 (day, scan 17:01): 17z high 35 -> 67 %, middle 27 -> 34 %, low 6 ->
+#   15 %, observed from above 25 / 33 / 100 %, tops set 0 / 7 / 59 %, COD 80 %
+#   (daylight 100 %); 18z high 35 -> 70 %, COD 73 %.
+#   17:20: the 17:16 scan corrects 17z (high 35 -> 66 %, COD 78 %) and 18z
+#   (35 -> 70 %, COD 75 %) again.
+#   Back to Satellite observed after another level: no new lines (reused) -
+#   6 blend lines in all; 0 errors, 0 warnings. The offline replay logs the same
+#   values and writes byte-identical fields_* / goes_* images.
+# Images (shot dir): n* = 2026-10-11 00:05, d* = 2026-10-10 17:05; <view>_layers
+# vs <view>_satellite (and _shell) from the same camera. Night: the observed deck
+# covers more of the box (high 54 -> 82 %), its slab ends at ~10 km instead of
+# HRRR's ~14 km. Day: the thick system in the south-west and the deck over New
+# York where HRRR has a gap (harbour: overcast instead of a blue gap).
+# cloudfields: fields_<valid>_hrrr_* vs fields_<valid>_goes<hhmm>_* (per layer
+# cover / base / top / optical depth, the ranges of the goes images);
+# goes: goes_<scan>_scan_* (the scan itself, parallax-corrected).
+
+# ---- 2026-10-11 00:05 UTC: night, a high deck (scan 00:01)
+weather 202610110005
+tab weather
+set panel off
+lookat -74.0,40.66,0,0,-89,700000
+wait
+shot n1_domain_layers
+cloudfields
+wait
+# Quality combo -> Satellite observed (the open list shot once)
+set panel on
+sleep 0.3
+click 1450 262
+sleep 0.3
+shot n2_quality_combo_open
+click 1400 328       # Satellite observed
+set panel off
+wait
+shot n3_domain_satellite
+cloudfields
+goes
+wait
+
+lookat -74.0300,40.6500,0,0,-60,35000
+wait
+shot n4_30km_satellite
+set panel on
+sleep 0.3
+click 1450 262
+sleep 0.3
+click 1400 308       # Layers + wind
+set panel off
+wait
+shot n5_30km_layers
+set panel on
+sleep 0.3
+click 1450 262
+sleep 0.3
+click 1400 288       # Simple shell
+set panel off
+wait
+shot n6_30km_shell
+
+camera -74.0400,40.6600,18,15,10
+set panel on
+sleep 0.3
+click 1450 262
+sleep 0.3
+click 1400 308       # Layers + wind
+set panel off
+wait
+shot n7_harbour_layers
+# back to Satellite observed: the corrections of 00z / 01z are reused (no new blend)
+set panel on
+sleep 0.3
+click 1450 262
+sleep 0.3
+click 1400 328       # Satellite observed
+set panel off
+wait
+shot n8_harbour_satellite
+
+# ---- 2026-10-10 17:05 UTC: day, optical depth from COD (scan 17:01)
+weather 202610101705
+wait
+shot d1_harbour_satellite
+cloudfields
+goes
+wait
+set panel on
+sleep 0.3
+click 1450 262
+sleep 0.3
+click 1400 308       # Layers + wind
+set panel off
+wait
+shot d2_harbour_layers
+cloudfields
+wait
+
+lookat -74.0300,40.6500,0,0,-60,35000
+wait
+shot d3_30km_layers
+set panel on
+sleep 0.3
+click 1450 262
+sleep 0.3
+click 1400 288       # Simple shell
+set panel off
+wait
+shot d4_30km_shell
+set panel on
+sleep 0.3
+click 1450 262
+sleep 0.3
+click 1400 328       # Satellite observed
+set panel off
+wait
+shot d5_30km_satellite
+
+lookat -74.0,40.66,0,0,-89,700000
+wait
+shot d6_domain_satellite
+set panel on
+sleep 0.3
+click 1450 262
+sleep 0.3
+click 1400 308       # Layers + wind
+set panel off
+wait
+shot d7_domain_layers
+set panel on
+sleep 0.3
+click 1450 262
+sleep 0.3
+click 1400 328       # Satellite observed
+set panel off
+wait
+
+# Scrubbing on: 17:20 takes the 17:16 scan, both hours corrected again
+weather 202610101720
+wait
+shot d8_domain_satellite_1720
+stats
