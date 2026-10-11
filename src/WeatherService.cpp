@@ -531,6 +531,11 @@ struct WeatherService::FetchResult {
 
 WeatherService::WeatherService(std::shared_ptr<HttpAssetAccessor> accessor, AsyncSystem asyncSystem, Options options)
     : _accessor(std::move(accessor)), _asyncSystem(std::move(asyncSystem)), _options(std::move(options)) {
+  GoesSource::Options goesOptions;
+  goesOptions.offline = _options.offline;
+  goesOptions.refreshSeconds = _options.refreshSeconds;
+  goesOptions.grid = _options.grid;
+  _goes = std::make_shared<GoesSource>(_accessor, _asyncSystem, goesOptions);
   if (_options.pinnedTime) {
     LOG_I("Clouds: NOAA HRRR, weather time pinned to {} (replay / forecast)", formatTime(*_options.pinnedTime));
   } else {
@@ -545,6 +550,7 @@ void WeatherService::setGrid(const CloudGrid& grid) {
     return;
   }
   _options.grid = grid;
+  _goes->setGrid(grid);
   ++_generation;
   _loaded.clear();
   _summaries.clear();
@@ -582,7 +588,9 @@ void WeatherService::setPinnedTime(std::optional<int64_t> t) {
   }
 }
 
-void WeatherService::update(bool active) {
+void WeatherService::update(bool active, bool satellite) {
+  _satellite = active && satellite;
+  _goes->update(time(), _satellite);
   if (!_probeDone && !_probeBusy) {
     startProbe();
   }
@@ -1044,6 +1052,9 @@ std::string WeatherService::activity() const {
     add("loading " + _activity);
   }
   add(_problem);
+  if (_satellite) {
+    add(_goes->activity());
+  }
   return s;
 }
 

@@ -2,6 +2,8 @@
 #include "CloudFields.h"
 #include "HttpAssetAccessor.h"
 
+struct GoesScan;
+
 #include <CesiumAsync/AsyncSystem.h>
 
 #include <filesystem>
@@ -36,3 +38,10 @@ void inspectNetcdf(const std::shared_ptr<HttpAssetAccessor>& accessor, const Ces
 void inspectGoesScan(const std::shared_ptr<HttpAssetAccessor>& accessor, const CesiumAsync::AsyncSystem& asyncSystem,
                      std::vector<std::string> sources, const CloudGrid& grid,
                      std::vector<std::shared_ptr<const CloudFields>> hrrr, std::filesystem::path imageDir);
+
+// Script command `goes` without arguments: the fields of a scan loaded by the
+// weather service (GoesSource) as PNGs like inspectGoesScan's
+// (goes_<scan>_scan_<variable>.png: HT, TCF, CF1..CF5, BCM, COD; the same
+// display ranges, so they equal its *_parallax images of the same scan).
+void writeGoesScanImages(const CesiumAsync::AsyncSystem& asyncSystem, std::shared_ptr<const GoesScan> scan,
+                         std::filesystem::path imageDir);

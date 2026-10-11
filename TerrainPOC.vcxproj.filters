@@ -45,6 +45,7 @@
     <ClCompile Include="src\Grib2.cpp"><Filter>Data</Filter></ClCompile>
     <ClCompile Include="src\Hdf5.cpp"><Filter>Data</Filter></ClCompile>
     <ClCompile Include="src\GoesGrid.cpp"><Filter>Data</Filter></ClCompile>
+    <ClCompile Include="src\GoesSource.cpp"><Filter>Data</Filter></ClCompile>
     <ClCompile Include="src\GridFill.cpp"><Filter>Data</Filter></ClCompile>
     <ClCompile Include="src\NetcdfInspect.cpp"><Filter>Data</Filter></ClCompile>
     <ClCompile Include="src\WeatherService.cpp"><Filter>Data</Filter></ClCompile>
@@ -79,6 +80,7 @@
     <ClInclude Include="src\Grib2.h"><Filter>Data</Filter></ClInclude>
     <ClInclude Include="src\Hdf5.h"><Filter>Data</Filter></ClInclude>
     <ClInclude Include="src\GoesGrid.h"><Filter>Data</Filter></ClInclude>
+    <ClInclude Include="src\GoesSource.h"><Filter>Data</Filter></ClInclude>
     <ClInclude Include="src\GridFill.h"><Filter>Data</Filter></ClInclude>
     <ClInclude Include="src\NetcdfInspect.h"><Filter>Data</Filter></ClInclude>
     <ClInclude Include="src\WeatherService.h"><Filter>Data</Filter></ClInclude>

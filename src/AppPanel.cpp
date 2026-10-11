@@ -581,6 +581,39 @@ void App::panelSources() {
   } else {
     ImGui::TextDisabled(_showClouds ? "No dataset loaded yet" : "Clouds hidden: nothing is requested");
   }
+
+  // Step 3 in progress: the GOES-19 scan of the weather time.
+  ImGui::Spacing();
+  ImGui::TextUnformatted("Satellite: GOES-19 ABI");
+  tooltip("NOAA's geostationary GOES-East over 75 W: Level-2 cloud products of the CONUS sector every 5 min from "
+          "the NOAA open-data bucket (kept forever): cloud-top height (ACHA), cloud cover layers (CCLC), cloud "
+          "mask (ACM), cloud optical depth (COD), ~9 MB per scan. Resampled onto the weather box with the parallax "
+          "correction (a cloud top appears ~1.07 x its height north of its position from New York)");
+  ImGui::SameLine();
+  ImGui::TextDisabled("observed, every 5 min");
+  if (_cloudLevel < CloudLevel::Satellite) {
+    ImGui::TextDisabled("Loaded at the quality \"%s\" only", cloudLevelInfo(CloudLevel::Satellite).name);
+  } else {
+    const int64_t t = int64_t(std::floor(weatherTime()));
+    const GoesSource::Status& goes = _weather->goes().status();
+    if (const std::shared_ptr<const GoesScan> scan = _weather->goesScan(t)) {
+      const GoesScan& s = *scan;
+      ImGui::Text("Scan %s UTC, %lld min before", WeatherService::formatTime(s.start).substr(11, 5).c_str(),
+                  static_cast<long long>((t - s.start) / 60));
+      tooltip("The newest scan starting at or before the weather time (at most 30 min earlier) with all four "
+              "products; live, the listing is read again every 10 min");
+      ImGui::TextDisabled("Cloud tops on %.0f %% (mean %.1f km), mask %.0f %% cloudy, optical depth %.1f; not "
+                          "blended into the clouds yet",
+                          s.cloudTopFraction * 100.0, s.meanCloudTop / 1000.0, s.cloudyFraction * 100.0,
+                          s.meanOpticalDepth);
+    } else {
+      ImGui::TextDisabled("No scan loaded for this time");
+    }
+    if (goes.scansListed > 0) {
+      ImGui::TextDisabled("%d scans listed in the 30 min before, newest %s UTC", goes.scansListed,
+                          WeatherService::formatTime(goes.newestListed).substr(11, 5).c_str());
+    }
+  }
   const std::string activity = _weather->activity();
   ImGui::Text("Status: %s",
               activity.empty() ? (_cfg.offline ? "idle (offline: disk cache only)" : "idle") : activity.c_str());

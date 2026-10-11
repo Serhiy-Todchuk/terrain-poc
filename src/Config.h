@@ -19,8 +19,9 @@ struct CameraSpec {
 enum class CloudLevel : int {
   Shell,  // step 1: one thin static shell, the total cover at the altitude of the layer mostly seen from below
   Layers, // step 2: low / middle / high slabs at per-cell altitudes, drifting with the wind
+  Satellite, // step 3 (in progress): + GOES-19 scans loaded for the weather time; not blended yet (plan item 5)
 };
-constexpr int kCloudLevelCount = 2;
+constexpr int kCloudLevelCount = 3;
 
 struct CloudLevelInfo {
   const char* id;      // command line, script and settings value

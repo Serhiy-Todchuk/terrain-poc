@@ -34,6 +34,10 @@ constexpr CloudLevelInfo kCloudLevels[kCloudLevelCount] = {
     {"layers", "Layers + wind",
      "Step 2: the HRRR low / middle / high layers as slabs at their own altitudes and thickness per cell, drifting "
      "with each layer's wind field, blended between the hours"},
+    {"satellite", "Satellite observed",
+     "Step 3 (in progress): + the GOES-19 scan of the weather time (cloud tops, cover layers, cloud mask, optical "
+     "depth; parallax-corrected, ~9 MB per scan, a new one every 10 min live). Loaded and shown in the HUD / "
+     "Sources; the clouds still look like Layers + wind until the scans are blended in"},
 };
 
 } // namespace
@@ -107,10 +111,13 @@ Data / rendering:
                                default a fixed afternoon sun
   --cloud-altitude m           every cloud layer at this altitude above MSL (default: per-cell
                                HRRR altitudes of the low / middle / high layers)
-  --cloud-level shell|layers   cloud quality level, one per roadmap step (default layers):
+  --cloud-level shell|layers|satellite
+                               cloud quality level, one per roadmap step (default layers):
                                shell = step 1, one thin static shell (HRRR total cover at the
                                altitude of the layer mostly seen from below); layers = step 2,
-                               the low / middle / high slabs drifting with the wind
+                               the low / middle / high slabs drifting with the wind; satellite =
+                               step 3 in progress, + the GOES-19 scan of the weather time
+                               (loaded, ~9 MB per scan; not blended into the clouds yet)
   --weather-center lon,lat|default
                                centre of the ~1200 x 1130 km weather box (default: New York; the
                                panel's "Fetch weather here" moves it to the camera; HRRR covers
@@ -147,7 +154,7 @@ water clarity, contour interval, field of view, fly speed, LOD (screen-space
 error), camera views / go-to / copy, screenshot, shader reload. Time & weather:
 the weather date / time (limited to the hours with weather data, Now = live),
 sun at that time, cloud shadows, the cloud quality level (simple shell / layers +
-wind), cloud layers low / middle / high, the history /
+wind / satellite observed), cloud layers low / middle / high, the history /
 forecast table of the hours with data (+-24..72 h; a row pins the time), the
 weather sources, the weather box centre + "Fetch weather here" and the loaded datasets.
 )";
@@ -257,7 +264,7 @@ std::optional<AppConfig> parseCommandLine(int argc, char** argv, const AppConfig
       cfg.cloudAltitude = std::stod(v);
     } else if (a == "--cloud-level") {
       const std::optional<CloudLevel> level = next(v) ? parseCloudLevel(v) : std::nullopt;
-      if (!level) return fail("--cloud-level expects shell or layers");
+      if (!level) return fail("--cloud-level expects shell, layers or satellite");
       cfg.cloudLevel = *level;
     } else if (a == "--contours") {
       cfg.contours = true;

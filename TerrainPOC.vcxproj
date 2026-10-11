@@ -100,6 +100,7 @@
     <ClCompile Include="src\GeoRef.cpp" />
     <ClCompile Include="src\GltfBuilder.cpp" />
     <ClCompile Include="src\GoesGrid.cpp" />
+    <ClCompile Include="src\GoesSource.cpp" />
     <ClCompile Include="src\Grib2.cpp" />
     <ClCompile Include="src\GridFill.cpp" />
     <ClCompile Include="src\Hdf5.cpp" />
@@ -150,6 +151,7 @@
     <ClInclude Include="src\GeoRef.h" />
     <ClInclude Include="src\GltfBuilder.h" />
     <ClInclude Include="src\GoesGrid.h" />
+    <ClInclude Include="src\GoesSource.h" />
     <ClInclude Include="src\Grib2.h" />
     <ClInclude Include="src\GridFill.h" />
     <ClInclude Include="src\Hdf5.h" />

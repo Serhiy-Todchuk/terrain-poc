@@ -1,6 +1,7 @@
 #pragma once
 #include "CloudFields.h"
 
+#include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 
 #include <span>
@@ -79,6 +80,13 @@ struct Raster {
 // parallax correction (surface products, the uncorrected look).
 std::vector<float> resample(const Raster& raster, const CloudGrid& grid, std::span<const float> heights,
                             float height = 0.0f);
+
+// The same in two parts, for several products of one scan (one projection, one
+// set of heights): the scan angles of every cell's line of sight (NaN where the
+// Earth hides it), then any raster sampled at them.
+std::vector<glm::dvec2> lineOfSightAngles(const Projection& projection, const CloudGrid& grid,
+                                          std::span<const float> heights, float height = 0.0f);
+std::vector<float> resample(const Raster& raster, std::span<const glm::dvec2> angles);
 
 struct ParallaxStats {
   int cloudy = 0;            // cells with a cloud top

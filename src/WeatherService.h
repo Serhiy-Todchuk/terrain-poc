@@ -1,5 +1,6 @@
 #pragma once
 #include "CloudFields.h"
+#include "GoesSource.h"
 #include "HttpAssetAccessor.h"
 
 #include <CesiumAsync/AsyncSystem.h>
@@ -30,6 +31,8 @@
 //  * Each dataset = two requests: the cloud fields (step-1 URL, so older caches
 //    stay valid) and "dynamics" (layer winds, cloud water / ice); without the
 //    second one clouds do not drift and optical depth falls back to a heuristic.
+//  * Step 3: GOES-19 scans (GoesSource) for the same weather time and box, only
+//    while the satellite level asks for them.
 class WeatherService : public std::enable_shared_from_this<WeatherService> {
 public:
   struct Options {
@@ -43,7 +46,8 @@ public:
 
   // Every frame. The disk cache is probed once regardless; nothing is
   // requested from the network while `active` is false (layer hidden).
-  void update(bool active);
+  // `satellite`: GOES-19 scans are wanted too (the satellite quality level).
+  void update(bool active, bool satellite = false);
   // Live (nullopt) or a pinned weather time; takes effect at the next update.
   void setPinnedTime(std::optional<int64_t> time);
   std::optional<int64_t> pinnedTime() const { return _options.pinnedTime; }
@@ -57,7 +61,10 @@ public:
   void setGrid(const CloudGrid& grid);
   const CloudGrid& grid() const { return _options.grid; }
 
-
+  // The GOES-19 scan loaded for t (GoesSource::scan): null when there is none
+  // or the satellite level is off.
+  std::shared_ptr<const GoesScan> goesScan(int64_t t) const { return _satellite ? _goes->scan(t) : nullptr; }
+  const GoesSource& goes() const { return *_goes; }
 
   // Loaded datasets around `t`: the latest valid at or before t and the
   // earliest after t, each at most 6 h away; either can be null.
@@ -94,7 +101,7 @@ public:
   int64_t newestRun() const; // newest listed / cached run (unix seconds), 0 = none
 
   // Catalog / download / decode in flight, or a needed hour not loaded yet.
-  bool busy() const { return _probeBusy || _listingBusy || _fetchBusy || _pending; }
+  bool busy() const { return _probeBusy || _listingBusy || _fetchBusy || _pending || _goes->busy(); }
   std::string activity() const; // what is going on / the last problem ("" when idle and fine)
 
   // "YYYYMMDDHH[MM]" (UTC) or "-N" (N hours before the current hour) -> unix seconds.
@@ -143,6 +150,9 @@ private:
   bool _fetchBusy = false;
   bool _pending = false;
   int64_t _reportedGap = 0; // weather time last reported as having no data
+
+  std::shared_ptr<GoesSource> _goes; // step 3: the satellite scans
+  bool _satellite = false;           // GOES scans wanted (last update)
 
   int _generation = 0;   // incremented by setGrid: stale continuations are ignored
   std::string _activity; // what is in flight (HUD)

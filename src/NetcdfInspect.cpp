@@ -3,6 +3,7 @@
 
 #include "GeoRef.h"
 #include "GoesGrid.h"
+#include "GoesSource.h"
 #include "Hdf5.h"
 #include "Log.h"
 #include "Renderer.h"
@@ -276,40 +277,6 @@ constexpr ProductView kProductViews[] = {
     {"CODC", "COD", 0.0, 40.0, true},    {"CMIPC", "CMI", kAuto, kAuto, false},
 };
 
-// "OR_ABI-L2-ACHAC-M6_G19_s20262840001181_e..." -> "ACHAC" and the scan start
-// (unix seconds; year, day of year, hour, minute, second).
-bool parseGoesName(const std::string& name, std::string& product, int64_t& start) {
-  const size_t p = name.find("ABI-L2-");
-  const size_t q = p == std::string::npos ? p : name.find("-M", p + 7);
-  const size_t s = q == std::string::npos ? q : name.find("_s", q);
-  if (s == std::string::npos || s + 15 > name.size()) {
-    return false;
-  }
-  auto digits = [&](size_t at, int count) {
-    int v = 0;
-    for (int i = 0; i < count; ++i) {
-      const char c = name[at + size_t(i)];
-      if (c < '0' || c > '9') {
-        return -1;
-      }
-      v = v * 10 + (c - '0');
-    }
-    return v;
-  };
-  const int year = digits(s + 2, 4), day = digits(s + 6, 3), hour = digits(s + 9, 2), minute = digits(s + 11, 2),
-            second = digits(s + 13, 2);
-  if (year < 1970 || day < 1 || hour < 0 || minute < 0 || second < 0) {
-    return false;
-  }
-  int64_t days = 0;
-  for (int y = 1970; y < year; ++y) {
-    days += (y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)) ? 366 : 365;
-  }
-  product = name.substr(p + 7, q - p - 7);
-  start = (days + day - 1) * 86400 + hour * 3600 + minute * 60 + second;
-  return true;
-}
-
 std::optional<double> scalarValue(const Hdf5::File& file, std::string_view name) {
   const Hdf5::Variable* v = file.variable(name);
   std::vector<double> values;
@@ -483,7 +450,7 @@ std::vector<Image> inspectScan(std::vector<Loaded>& loaded, const CloudGrid& gri
     OpenFile f;
     f.name = l.name;
     std::string error;
-    if (!parseGoesName(l.name, f.product, f.start)) {
+    if (!parseGoesFileName(l.name, f.product, f.start)) {
       report.add(Level::Error, fmt::format("GOES {}: not a GOES-R L2 file name (OR_ABI-L2-<product>-M<mode>_G<nn>_s"
                                            "<start>_...)",
                                            l.name));
@@ -713,6 +680,39 @@ void inspectNetcdf(const std::shared_ptr<HttpAssetAccessor>& accessor, const Ces
   load(accessor, asyncSystem, source)
       .thenInWorkerThread([images = std::move(images), imageDir = std::move(imageDir)](Loaded&& file) {
         return file.data.empty() ? std::vector<Image>{} : inspect(std::move(file.data), file.name, images, imageDir);
+      })
+      .thenInMainThread([](std::vector<Image>&& out) { writeImages(out); });
+}
+
+void writeGoesScanImages(const CesiumAsync::AsyncSystem& asyncSystem, std::shared_ptr<const GoesScan> scan,
+                         std::filesystem::path imageDir) {
+  asyncSystem
+      .runInWorkerThread([scan = std::move(scan), imageDir = std::move(imageDir)]() {
+        // The display ranges of the `goes` command's images (kProductViews): the
+        // same scan gives the same PNGs as its *_parallax ones.
+        std::string tag = "goes_" + WeatherService::formatCompact(scan->start) + "_scan_";
+        if (!(scan->grid == CloudGrid())) { // a moved weather box: its own images
+          tag += fmt::format("at_{:.2f}_{:.2f}_", scan->grid.centreLon(), scan->grid.centreLat());
+        }
+        std::vector<Image> out;
+        auto add = [&](const std::vector<float>& values, const std::string& name, double lo, double hi) {
+          if (values.empty()) {
+            return;
+          }
+          Image image = gridImage(values, scan->grid, lo, hi, false);
+          image.path = imageDir / (tag + name + ".png");
+          out.push_back(std::move(image));
+        };
+        add(scan->cloudTop, "HT", 0.0, 15000.0);
+        add(scan->totalCover, "TCF", 0.0, 1.0);
+        for (int b = 0; b < kGoesBandCount; ++b) {
+          add(scan->bandCover[size_t(b)], "CF" + std::to_string(b + 1), 0.0, 1.0);
+        }
+        add(scan->cloudMask, "BCM", 0.0, 1.0);
+        add(scan->opticalDepth, "COD", 0.0, 40.0);
+        SPDLOG_LOGGER_INFO(Log::data(), "GOES scan {} of the weather service: {} images", WeatherService::formatTime(scan->start),
+                           out.size());
+        return out;
       })
       .thenInMainThread([](std::vector<Image>&& out) { writeImages(out); });
 }

@@ -286,8 +286,14 @@ float Raster::sample(double x, double y) const {
 
 std::vector<float> resample(const Raster& raster, const CloudGrid& grid, std::span<const float> heights,
                             float height) {
+  return resample(raster, lineOfSightAngles(raster.projection, grid, heights, height));
+}
+
+std::vector<glm::dvec2> lineOfSightAngles(const Projection& projection, const CloudGrid& grid,
+                                          std::span<const float> heights, float height) {
   const size_t n = size_t(grid.nx) * size_t(grid.ny);
-  std::vector<float> out(n, kNaN);
+  const double nan = std::numeric_limits<double>::quiet_NaN();
+  std::vector<glm::dvec2> out(n, glm::dvec2(nan));
   if (!heights.empty() && heights.size() != n) {
     return out;
   }
@@ -301,9 +307,19 @@ std::vector<float> resample(const Raster& raster, const CloudGrid& grid, std::sp
         h = 0.0f;
       }
       double sx = 0.0, sy = 0.0;
-      if (raster.projection.scanAngles(lon, lat, GeoRef::navd88ToEllipsoid(h, lon, lat), sx, sy)) {
-        out[k] = raster.sample(sx, sy);
+      if (projection.scanAngles(lon, lat, GeoRef::navd88ToEllipsoid(h, lon, lat), sx, sy)) {
+        out[k] = glm::dvec2(sx, sy);
       }
+    }
+  }
+  return out;
+}
+
+std::vector<float> resample(const Raster& raster, std::span<const glm::dvec2> angles) {
+  std::vector<float> out(angles.size(), kNaN);
+  for (size_t k = 0; k < angles.size(); ++k) {
+    if (!std::isnan(angles[k].x)) {
+      out[k] = raster.sample(angles[k].x, angles[k].y);
     }
   }
   return out;

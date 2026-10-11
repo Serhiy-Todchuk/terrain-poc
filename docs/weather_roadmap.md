@@ -2,7 +2,8 @@
 
 Status (2026-10-11): **steps 1 and 2 implemented**, step 3 (GOES-19) started
 (data facts, decision and plan in [Step 3](#step-3--goes-19-observed-clouds); done:
-quality combo, HDF5 reader, fixed-grid navigation + parallax correction) — see
+quality combo, HDF5 reader, fixed-grid navigation + parallax correction, the
+GOES source in the weather service) — see
 [Step 1 — as built](#step-1--as-built) and
 [Step 2 — as built](#step-2--height-aware-layers-motion-shadows-as-built)
 (low / middle / high layers at their own altitudes, wind drift, time blending,
@@ -437,6 +438,8 @@ component the PoC does not have), THREDDS (above).
    correction from the cloud-top height. **Done 2026-10-11** (as built below).
 4. `GoesSource` in `WeatherService`: bucket listing → the newest file at or before
    the weather time per product, every 10 min live; replay from the same listing.
+   **Done 2026-10-11** (as built below; one scan for all products, at the new
+   level *Satellite observed*).
 5. Blend into `CloudFields`: GOES cover corrects the HRRR cover per layer
    (`CCLC` bands), `ACHA` top height the top of the highest layer, `COD` the
    optical depth by day; HRRR alone at night and outside the GOES data.
@@ -537,6 +540,63 @@ plus the `GeoRef` geoid; checked by the script command `goes` and
   either. All 13 hourly scans probed on 2026-10-10/11 had cloud tops over
   67–97 % of the box.
 
+**GOES source — as built** (2026-10-11; `src/GoesSource.*`, owned by
+`WeatherService`; checked by `scripts/goes_source_test.txt`):
+
+- Active only at the quality level *Satellite observed* (added with this item:
+  without a consumer every live session would download ~54 MB/h; until item 5
+  it looks like *Layers + wind* and adds the scan to the HUD line `goes` and the
+  panel's Sources). `WeatherService::update(active, satellite)`,
+  `goesScan(t)`; `busy()` / `activity()` include it, so `wait` covers listings,
+  downloads and decoding.
+- **Choice of the scan**: the newest scan starting at or before the weather time,
+  at most 30 min earlier, with all four products (`ACHAC`, `CCLC`, `ACMC`,
+  `CODC`) listed — the same scan for every product, since the cloud-top
+  heights of that scan correct the others — else the newest with `ACHAC`. Live,
+  a scan's products appear within ~5 min of its start (`ACMC` first, `CCLC`
+  last), so the newest complete scan is 5–15 min old. Scans that failed are
+  skipped until their retry (2 min; a decoding error: never), so an older scan
+  takes over (offline: the newest one in the disk cache).
+- **Listings**: one S3 `list-type=2` request per product and hour, for the hours
+  overlapping [t − 30 min, t] (never future hours). The choice waits until all
+  of them have answered (the hour answering first must not start a download the
+  other replaces). An hour listed more than 30 min after its end is *finished*:
+  its listing and its scan files go through the disk cache and are never listed
+  again — replays, also `--offline`. An unfinished hour bypasses the cache with
+  `Cache-Control: no-cache` (listing and files: a live scan could not be found
+  offline anyway, and ~9 MB every 10 min would fill the cache) and is listed
+  again every `refreshSeconds` (600 s) while needed: live = a new scan every
+  10 min. Offline, unfinished hours have no listing: no live GOES offline.
+- **Download + decode**: one scan at a time, four requests in parallel (host
+  limit 4), then a worker: `Hdf5::File` per file, `HT` → `cloudTopHeights`
+  (parallax), the scan angles of every cell's line of sight once
+  (`Goes::lineOfSightAngles`, new) and `TCF`, `CF1`…`CF5`, `BCM`, `COD` sampled
+  at them (`Goes::resample(raster, angles)`; the per-raster `resample` now uses
+  the same two steps, unchanged results). `CF1`…`CF5` are stored as percent
+  (`u8`, `valid_range` 0–100, although the files say `units = "1"`): scaled to
+  0..1. A product that does not decode is dropped with an error, a failed
+  download fails the scan (retried). Result: `GoesScan` (CloudGrid layout, NaN =
+  missing) + a summary; the 3 scans nearest to the weather time stay loaded.
+  Moving the weather box drops them (the files come back from the disk cache
+  for finished hours) and keeps the listings.
+- Cost (Release, default box): ~8.5 MB per scan, decoding 210–240 ms on one
+  worker (`cloudTopHeights` ~170 ms of it); Debug ~2 s.
+- Checks: the 00:01 scan of 2026-10-11 gives exactly the values of
+  `goes_nav_test` (cloud tops on 94.9 % of the box, mean 10.3 km, shift
+  11.1 km, 81 unconverged), and the service's images
+  (`goes` without arguments: `goes_<scan>_scan_*.png`) are byte-identical to
+  the `goes` command's `*_parallax.png` for `HT`, `TCF`, `BCM`, `COD`; 00:00
+  picks 2026-10-10 23:56 (the previous hour's directory on the previous day);
+  Boston's box decodes the same cached files (cloud tops 77 %); at *Layers +
+  wind* no request reaches the bucket; the offline run replays every pinned
+  scan with identical images; live picked the newest complete scan (8 min old).
+- Findings for item 5: `CCLC` `CF1`…`CF5` are valid on the whole box (also
+  where `TCF` is missing: only 10.8 % valid under the 00:01 high deck) and
+  mostly 0 or 1 per 10 km pixel; at 00:01 the bands' box means are 0.02 / 0.02 /
+  0.09 / 0.18 / 0.82 (the deck is in the top band, above 24 000 ft ≈ 7.3 km).
+  `COD` has a retrieval on 92 % of the box at night too (mean 2.3: the
+  nighttime algorithm; the cloud mask says 95 % cloudy).
+
 **UI — cloud quality levels** (requested 2026-10-11): step 3 replaces the
 *Single layer (step-1 look)* checkbox with a combo box of cloud quality levels
 with meaningful names, one per step, each adding to the previous ones — e.g.
@@ -555,7 +615,9 @@ Low / Mid / High row (disabled at *Simple shell*), so the rows below keep their
 positions. `--cloud-level shell|layers`, script `cloudlevel shell|layers`,
 persisted `weather.cloud_level` (the old `weather.cloud_single` is read once and
 not written again); every change is logged with its `--cloud-level`. The next
-level (*Satellite observed*) arrives with the GOES blend (plan item 5).
+level, `satellite` (*Satellite observed*), arrived with plan item 4: it loads
+the GOES scans (HUD, Sources) and looks like *Layers + wind* until the blend
+(plan item 5).
 
 ## Step 4 — Procedural volumetric clouds
 

@@ -532,7 +532,7 @@ void App::updateClouds() {
   if (!_weather) {
     return;
   }
-  _weather->update(_showClouds);
+  _weather->update(_showClouds, _cloudLevel >= CloudLevel::Satellite);
   if (!_showClouds) {
     return;
   }
@@ -1207,11 +1207,11 @@ void App::stepScript(double dt) {
       LOG_E("script[{}]: unknown option {}", c.line, arg(0));
     }
   } else if (c.verb == "cloudlevel") {
-    // cloudlevel shell | layers | N : the cloud quality level
+    // cloudlevel shell | layers | satellite | N : the cloud quality level
     if (const std::optional<CloudLevel> level = parseCloudLevel(arg(0))) {
       setCloudLevel(*level, "script cloudlevel");
     } else {
-      LOG_E("script[{}]: cloudlevel expects shell or layers", c.line);
+      LOG_E("script[{}]: cloudlevel expects shell, layers or satellite", c.line);
     }
   } else if (c.verb == "tab") {
     // tab view | weather : select a settings-panel tab
@@ -1269,8 +1269,16 @@ void App::stepScript(double dt) {
     // goes <url|path> ... : the GOES-R L2 files of one scan on the weather box
     // (navigation + parallax checks, grid PNGs in the shot dir, compared with the
     // loaded HRRR datasets around the weather time). `wait` covers it.
-    if (c.args.empty() || !_weather) {
-      LOG_E("script[{}]: goes expects the URLs or paths of a GOES scan's L2 files", c.line);
+    // goes (no arguments): PNGs of the scan the weather service has loaded for
+    // the weather time (satellite level).
+    if (!_weather) {
+      LOG_E("script[{}]: goes: no weather service", c.line);
+    } else if (c.args.empty()) {
+      if (const std::shared_ptr<const GoesScan> scan = _weather->goesScan(int64_t(std::floor(weatherTime())))) {
+        writeGoesScanImages(*_asyncSystem, scan, _cfg.shotDir);
+      } else {
+        LOG_E("script[{}]: goes: no GOES scan loaded for the weather time (cloudlevel satellite, then wait)", c.line);
+      }
     } else {
       const WeatherService::Bracket bracket = _weather->bracket(int64_t(std::floor(weatherTime())));
       inspectGoesScan(_http, *_asyncSystem, c.args, _weather->grid(), {bracket.before, bracket.after}, _cfg.shotDir);
@@ -1375,7 +1383,8 @@ std::vector<std::wstring> App::hudLines() {
     lines.push_back(L"G settings panel (layers, rendering, camera views) | H hide this HUD");
   }
   // Credits on two short lines: keeps the HUD clear of the settings panel.
-  lines.push_back(L"Elevation: USGS 3DEP, NOAA BAG + NCEI | Buildings: (c) OpenStreetMap | Weather: NOAA HRRR");
+  lines.push_back(wformat("Elevation: USGS 3DEP, NOAA BAG + NCEI | Buildings: (c) OpenStreetMap | Weather: NOAA HRRR%s",
+                          _cloudLevel >= CloudLevel::Satellite ? " + GOES-19" : ""));
   lines.push_back(wformat("Imagery: %s", _imageryName.empty() ? "none" : _imageryCredit.c_str()));
   return lines;
 }
@@ -1399,8 +1408,36 @@ std::vector<std::wstring> App::weatherHudLines() const {
     return lines;
   }
   const std::string activity = _weather->activity();
+  // Step 3 in progress: the GOES-19 scan loaded for the weather time (not blended yet).
+  auto goesLine = [&]() {
+    if (_cloudLevel < CloudLevel::Satellite) {
+      return;
+    }
+    const std::shared_ptr<const GoesScan> scan = _weather->goesScan(t);
+    if (!scan) {
+      lines.push_back(L"goes      no GOES-19 scan for this time yet");
+      return;
+    }
+    const GoesScan& s = *scan;
+    std::string text = WeatherService::formatTime(s.start).substr(11, 5) + " UTC, " +
+                       std::to_string((t - s.start) / 60) + " min before: tops on " +
+                       std::to_string(int(std::lround(s.cloudTopFraction * 100.0))) + " %";
+    char buf[96];
+    snprintf(buf, sizeof(buf), " (%.1f km)", s.meanCloudTop / 1000.0);
+    text += buf;
+    if (s.products & (1 << kGoesCloudMask)) {
+      snprintf(buf, sizeof(buf), ", mask %.0f %% cloudy", s.cloudyFraction * 100.0);
+      text += buf;
+    }
+    if (s.products & (1 << kGoesOpticalDepth)) {
+      snprintf(buf, sizeof(buf), ", tau %.1f", s.meanOpticalDepth);
+      text += buf;
+    }
+    lines.push_back(wformat("goes      GOES-19 %s (not blended yet)", text.c_str()));
+  };
   if (!_cloudA.fields) {
     lines.push_back(wformat("clouds    %s", activity.empty() ? "no data" : activity.c_str()));
+    goesLine();
     return lines;
   }
   const CloudFields& a = *_cloudA.fields;
@@ -1445,6 +1482,7 @@ std::vector<std::wstring> App::weatherHudLines() const {
   }
   lines.push_back(wformat("layers    %s%s%s", layers.c_str(), _cloudAltitude >= 0.0 ? " (manual altitude)" : "",
                           a.hasWind ? "" : " (no wind data)"));
+  goesLine();
   return lines;
 }
 

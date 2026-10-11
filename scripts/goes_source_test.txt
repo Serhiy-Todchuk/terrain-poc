@@ -1,0 +1,61 @@
+# GOES-19 scans in the weather service (src/GoesSource.*, docs/weather_roadmap.md
+# step 3, plan item 4) at the cloud quality "Satellite observed": the bucket
+# listings of the hours before the weather time, the newest scan at or before it
+# with all four products (ACHAC, CCLC, ACMC, CODC), decoded and parallax-corrected
+# on the weather box; replays from the disk cache, a moved box, Layers + wind
+# (GOES idle), live.
+# Needs the network once (~9 MB per new scan: 2026-10-10 23:56; the 00:01 files
+# are those of netcdf_test / goes_nav_test; Boston's HRRR 00z ~4 MB); then every
+# part but the live one replays with --offline. Live downloads the newest scan
+# on every run (~9 MB): files of an unfinished hour bypass the disk cache.
+# Run: TerrainPOC.exe --script ..\..\scripts\goes_source_test.txt --shot-dir ..\..\shots\goes_source --no-terrain --no-buildings
+# Expected log ("Clouds: GOES-19 ...", [data]):
+#   00:05 -> scan 2026-10-11 00:01 with the values of goes_nav_test: cloud tops
+#   on 95 % of the box, mean 10.3 km, parallax shift 11.1 km, ~80 cells
+#   unconverged; its goes_202610110001_scan_{HT,TCF,BCM,COD}.png equal the
+#   *_parallax.png of the `goes` command for the same files.
+#   00:00 -> scan 2026-10-10 23:56 (the previous hour, on the previous day: day
+#   283 hour 23).
+#   Boston box at 00:00: the 23:56 scan from the disk cache (no download),
+#   decoded for that box (goes_202610102356_scan_at_-71.06_42.36_*.png).
+#   Layers + wind: no GOES requests after the "GOES idle" note; live at
+#   Satellite observed: the newest complete scan (5-15 min old), HUD line "goes".
+weather 202610110005
+cloudlevel satellite
+lookat -74.0,40.66,0,0,-60,35000
+wait
+tab weather
+set sections on
+# the panel's Sources section (GOES block) is below the window: scroll it up
+sleep 0.3
+scroll 1440 600 -15
+sleep 0.3
+shot g1_scan_0001
+goes
+goes https://noaa-goes19.s3.amazonaws.com/ABI-L2-ACHAC/2026/284/00/OR_ABI-L2-ACHAC-M6_G19_s20262840001181_e20262840003554_c20262840005328.nc https://noaa-goes19.s3.amazonaws.com/ABI-L2-CCLC/2026/284/00/OR_ABI-L2-CCLC-M6_G19_s20262840001181_e20262840003554_c20262840006071.nc https://noaa-goes19.s3.amazonaws.com/ABI-L2-ACMC/2026/284/00/OR_ABI-L2-ACMC-M6_G19_s20262840001181_e20262840003554_c20262840004304.nc https://noaa-goes19.s3.amazonaws.com/ABI-L2-CODC/2026/284/00/OR_ABI-L2-CODC-M6_G19_s20262840001181_e20262840003554_c20262840005590.nc
+wait
+# the scan before 00:00:00 lies in the previous hour's directory of the previous day
+weather 2026101100
+wait
+shot g2_scan_2356
+goes
+wait
+# Boston's weather box: the same files, decoded for it
+weather center -71.0589,42.3601
+wait
+shot g3_boston
+goes
+wait
+weather center default
+wait
+# Layers + wind: GOES is not requested
+cloudlevel layers
+weather 202610110030
+wait
+log GOES idle: no requests to noaa-goes19 from here until Satellite observed again
+stats
+weather live
+cloudlevel satellite
+wait
+shot g4_live
+stats

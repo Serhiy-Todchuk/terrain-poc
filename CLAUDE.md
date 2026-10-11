@@ -82,6 +82,8 @@ main.cpp ─ App (window, loop, input, harness, HUD; settings panel in AppPanel.
             │     HttpAssetAccessor (clouds + dynamics requests) → Grib2 decode → CloudFields
             │     per layer (worker) → App::updateClouds (bracket, drift, fade)
             │     → Renderer::createCloudTexture per dataset, CloudFrame per frame
+            │     └─ GoesSource (step 3, level Satellite observed): S3 listings → the scan of
+            │        the weather time → Hdf5 + GoesGrid parallax (worker) → GoesScan (not blended yet)
             ├─ Renderer: [roof imagery capture] → [cloud blend CS, cloud shadow map CS] → sky
             │     → terrain tiles → building tiles → vessels → water → clouds → MSAA resolve
             │     → HUD (D2D, left) → settings panel (Dear ImGui, right)
@@ -105,7 +107,7 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 | `src/AppPanel.cpp` | `App::drawPanel` (header row with the hide arrow, tab bar) + `drawPanelArrows` (HUD / panel hide-show arrows, `_hudInset`) + `section` (collapsing header with persisted open state) + `panelLayers/Rendering/Camera/Detail/Tools` (tab **View**: toggles with key hints, MSAA combo, fog, vsync, water absorption, contour interval, view presets `kViews`, go-to / copy `--camera`, FOV, fly speed, live terrain/buildings SSE, screenshot, shader reload, log stats) + `panelWeather/History/Sources` (tab **Time & weather**: Now, date combo of days with data + ◀ ▶, time slider over the day's hours with data, ±1 h, Apply to sun, cloud shadows, cloud quality combo, Low/Mid/High; history / forecast table of `WeatherService::catalog()` ±24/48/72 h with a row pinning the time; HRRR facts, catalog / newest run / forecast reach, loaded datasets, status); `currentSettings()` (in App.cpp) = the persisted state; changes logged as `Settings panel: …` |
 | `src/Settings.{h,cpp}` | Persisted UI settings `TerrainPOC.ini` (next to the exe; `--settings file`, `--no-settings`): `Settings::load` (key=value lines into an `AppConfig`, before the command line is applied over it — main.cpp parses argv twice) and `Settings::save` (at `App::shutdown` when `cfg.settingsActive`). The key table lists every persisted field: toggles, MSAA, vsync, tunables, HUD / panel / tab / sections bitmask, history range, window size — not the weather time, not the camera. Harness runs never touch it unless `--settings` is given explicitly |
 | `src/Ui.{h,cpp}` | Dear ImGui plumbing: context (`IniFilename` null), Win32 + DX11 backends, Segoe UI 15 px (fallback: built-in font), dark translucent style, `setScale` (DPI: `ScaleAllSizes` + `FontScaleDpi`), `processMessage`, `wantsMouse/Keyboard`, `newFrame(inputEnabled)` / `endFrame` / `render` |
-| `src/Config.{h,cpp}` | `AppConfig` defaults (incl. the persisted-only fields `imageryOn`, `contourInterval`, `cloudLayers`, `historyHours`, `flySpeed`, `panelTab`, `panelSections`), `CloudLevel` (cloud quality levels: `kCloudLevels` id / name / tooltip, `cloudLevelInfo`, `parseCloudLevel`), CLI parsing over a base config, `--help` text, `parseCameraSpec` |
+| `src/Config.{h,cpp}` | `AppConfig` defaults (incl. the persisted-only fields `imageryOn`, `contourInterval`, `cloudLayers`, `historyHours`, `flySpeed`, `panelTab`, `panelSections`), `CloudLevel` (cloud quality levels shell / layers / satellite: `kCloudLevels` id / name / tooltip, `cloudLevelInfo`, `parseCloudLevel`), CLI parsing over a base config, `--help` text, `parseCameraSpec` |
 | `src/Camera.{h,cpp}` | ECEF camera, heading/pitch in local ENU, `apply(CameraSpec)` (eye / look-at), reversed-Z infinite projection, `orbit` / `moveTowards` / `translate`, `rayDirection`, `describe()` (prints `--camera` syntax), `intersectEllipsoid` |
 | `src/TerrainLoader.{h,cpp}` | Custom loader: tile rectangles, children + bounding volumes + geometric error, parent→child source hints (`TileInfo`), `buildTerrainMesh` (border-ring normals, skirts, adaptive diagonals, `_HEIGHT`, `_WATERMASK`) |
 | `src/ElevationService.{h,cpp}` | ImageServer URL building, bsq parsing, source selection per level, NCEI ancestor LRU cache + bilinear `resample`, `isHydroFlat`, **`merge`** (the land/seabed rules), `makeFlatGrid`, `geographicTile` |
@@ -115,12 +117,13 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 | `src/RendererResources.{h,cpp}` | `GpuVertex` (32 B) + `packNormalWater`, glTF→GPU conversion (`forEachPrimitiveInScene`, RTC/up-axis; `_FACADE` → `isBuilding`), raster textures (+CPU mips), GPU stats |
 | `src/Renderer.{h,cpp}` | D3D11 device/flip swapchain, sRGB RTV + UNORM UI RTV (`bindUiTarget`), MSAA scene target + `resolveScene`, R32 depth (DSV + read-only DSV + SRV), pipelines/states, runtime shader compile (`MSAA_SAMPLES` define), `drawTiles` (overlay mapping), water ring mesh, clouds (`createCloudTexture` = fields (+ the step-1 single layer as slice 3) + wind textures, `blendClouds` = CSBlendClouds → the blended field + the noise drift texture, `renderCloudShadows` = CSCloudShadow with a change key, `snapshotClouds`, `drawClouds`, sphere / cloud constants and time-of-day sky colours (`skyColours`) in `beginFrame`), D2D/DWrite HUD (`setHudScale`), WIC PNG screenshot (`writePng`, static: any BGR buffer), `pickWorld` (compute-shader depth read), roof imagery capture (`updateRoofImagery`) |
 | `src/HttpAssetAccessor.{h,cpp}` | WinHTTP `IAssetAccessor`: queue with per-host limits, retries/backoff, logging, disk cache (request header `Cache-Control: no-cache` bypasses it), `isCached(url)` (header probe, thread-safe), `--offline`, stats, `shutdown()` |
-| `src/WeatherService.{h,cpp}` | Live clouds: weather time (live / pinned to the minute), catalog of available hours (NOMADS top-level day list + day file lists, disk-cache probe), needed hours around the time, one fetch at a time (clouds + dynamics requests), `bracket(t)`, `activity()` for HUD/stats, `catalog()` (per available hour: run, listed / cached / loaded, `HourSummary` of every dataset seen this session) + `newestRun()` for the panel, `setGrid` (the weather box moved: datasets / summaries / cache catalog dropped, re-probed; `_generation` discards in-flight results of the old box), `parseTime` (`YYYYMMDDHH[MM]` / `-N`); `HrrrSource` (filter URLs, list/day parsers, `decode` = GRIB2 → bilinear resample to `CloudGrid`, layer winds per cell (grid → earth rotation; the mean near the centre for the HUD / change key), per-layer altitude/thickness (push-pull `GridFill::fillGaps`, `boxBlur`), optical depth, summary) |
+| `src/WeatherService.{h,cpp}` | Live clouds: weather time (live / pinned to the minute), catalog of available hours (NOMADS top-level day list + day file lists, disk-cache probe), needed hours around the time, one fetch at a time (clouds + dynamics requests), `bracket(t)`, `activity()` for HUD/stats, `catalog()` (per available hour: run, listed / cached / loaded, `HourSummary` of every dataset seen this session) + `newestRun()` for the panel, `setGrid` (the weather box moved: datasets / summaries / cache catalog dropped, re-probed; `_generation` discards in-flight results of the old box), `parseTime` (`YYYYMMDDHH[MM]` / `-N`); `HrrrSource` (filter URLs, list/day parsers, `decode` = GRIB2 → bilinear resample to `CloudGrid`, layer winds per cell (grid → earth rotation; the mean near the centre for the HUD / change key), per-layer altitude/thickness (push-pull `GridFill::fillGaps`, `boxBlur`), optical depth, summary); owns the `GoesSource` (`update(active, satellite)`, `goesScan(t)`, busy / activity include it) |
+| `src/GoesSource.{h,cpp}` | GOES-19 scans (step 3): `GoesScan` (CloudGrid layout: `cloudTop`, `totalCover`, `bandCover[5]` (CCLC percent → 0..1), `cloudMask`, `opticalDepth`, summary), `parseGoesFileName`; `GoesSource`: per-hour S3 listings of the 4 products (`list-type=2`, finished hours through the disk cache, unfinished ones `no-cache` + re-listed every 10 min), `choose` (newest scan ≤ t within 30 min with all products, else with ACHAC; failed ones skipped until retry), one fetch at a time → `decodeScan` (worker: `cloudTopHeights`, `lineOfSightAngles` once, every product sampled there), 3 scans kept, `setGrid` drops scans (`_generation`), `status()` for the panel |
 | `src/Grib2.{h,cpp}` | Minimal GRIB2 reader: templates 3.30 (Lambert conformal, spherical earth, any scan mode but boustrophedon, `uvGridRelative` flag), 4.0/4.8, 5.0 (simple packing) + bitmap; `LambertGrid::project` (lon/lat → fractional i/j), `rotation(lon)` (grid → earth vector components), `Field::sample` (bilinear, NaN-aware). Pure C++ |
 | `src/CloudFields.h` | `CloudGrid` (default lon −81.2…−66.8, lat 35.55…45.75; `centredAt(lon, lat)` = the same 14.4°×10.2° box elsewhere; 576×408 cells of 0.025°, row 0 north) + `CloudLayer` (per layer: cover, base altitude, thickness, optical depth, wind per cell; summary: mean cover, altitude near the centre, mean wind) + `CloudFields` (total cover, raw base/top, 3 layers, `singleOpticalDepth` (step-1 look), run/valid time, `hasWind`/`hasCondensate`): the only weather type the renderer sees |
 | `src/Hdf5.{h,cpp}` | Minimal HDF5 / NetCDF-4 reader (GOES-R L2 files, step 3): superblock v2/3, v2 object headers + continuations, compact / dense links and attributes (fractal heap + v2 B-tree), integer / IEEE float (either byte order) / fixed string types, layout v3 (compact, contiguous, chunked with v1 B-tree index), shuffle + deflate (zlib-ng); `File::open` (whole file in memory, one bounds-checked reader), `read` (raw hyperslab, only the intersecting chunks decoded), `readValues` (CF: `_FillValue`, `valid_range`, `_Unsigned`, `scale_factor`/`add_offset` → float/double, NaN missing). Anything else = error. Pure C++ |
-| `src/NetcdfInspect.{h,cpp}` | Script command `netcdf url\|path [var…]`: fetch (accessor) / read (`load`), parse on a worker, log structure + decoded stats per file as one block, attributes at debug level, window-vs-full self-check of chunked 2D variables, PNGs of the named 2D variables (`Renderer::writePng`, main thread). Script command `goes url\|path …` (`inspectGoesScan`): the files of one scan (product + start from the file name; `kProductViews` = the drawn variable per product), navigation checks (PUG example, each file's image centre / extent / pixels on the Earth vs its metadata, round trip), parallax geometry at the box centre, every product on the weather box flat + parallax-corrected (`_flat` / `_parallax` PNGs, 2 px per cell, 1° graticule, `kLandmarks` crosses), the HRRR hour of the weather-time bracket (`hrrr_TCDC`, mask agreement) |
-| `src/GoesGrid.{h,cpp}` | GOES-R ABI fixed grid (step 3): `Projection` (from `goes_imager_projection`; `ecef`, `scanAngles` (ECEF or lon/lat/h → x/y rad, false when hidden), `groundPoint` (PUG inverse), `viewZenith`), `Raster` (a (y, x) variable + regular x / y axes, optional window over a `CloudGrid` (outline at 0 / 20 km + 2 px), NaN-aware bilinear `sample` with ≥ 50 % valid weight), `resample` (CloudGrid cells along the line of sight at per-cell / constant heights above MSL), `cloudTopHeights` (self-consistent parallax: fixed point on the gap-filled `HT`, `ParallaxStats`, the solved line-of-sight heights for the other products). Pure C++ (+ `GeoRef` geoid) |
+| `src/NetcdfInspect.{h,cpp}` | Script command `netcdf url\|path [var…]`: fetch (accessor) / read (`load`), parse on a worker, log structure + decoded stats per file as one block, attributes at debug level, window-vs-full self-check of chunked 2D variables, PNGs of the named 2D variables (`Renderer::writePng`, main thread). Script command `goes url\|path …` (`inspectGoesScan`): the files of one scan (product + start from the file name; `kProductViews` = the drawn variable per product), navigation checks (PUG example, each file's image centre / extent / pixels on the Earth vs its metadata, round trip), parallax geometry at the box centre, every product on the weather box flat + parallax-corrected (`_flat` / `_parallax` PNGs, 2 px per cell, 1° graticule, `kLandmarks` crosses), the HRRR hour of the weather-time bracket (`hrrr_TCDC`, mask agreement). `goes` without arguments (`writeGoesScanImages`): the service's loaded scan as `goes_<scan>_scan_<var>.png` (same ranges ⇒ byte-identical to the `_parallax` images of the same files) |
+| `src/GoesGrid.{h,cpp}` | GOES-R ABI fixed grid (step 3): `Projection` (from `goes_imager_projection`; `ecef`, `scanAngles` (ECEF or lon/lat/h → x/y rad, false when hidden), `groundPoint` (PUG inverse), `viewZenith`), `Raster` (a (y, x) variable + regular x / y axes, optional window over a `CloudGrid` (outline at 0 / 20 km + 2 px), NaN-aware bilinear `sample` with ≥ 50 % valid weight), `resample` (CloudGrid cells along the line of sight at per-cell / constant heights above MSL; = `lineOfSightAngles` + `resample(raster, angles)`, so one scan's products share the angles), `cloudTopHeights` (self-consistent parallax: fixed point on the gap-filled `HT`, `ParallaxStats`, the solved line-of-sight heights for the other products). Pure C++ (+ `GeoRef` geoid) |
 | `src/GridFill.{h,cpp}` | `fillGaps` (push-pull) + `boxBlur` on row-major float grids (HRRR layer heights, GOES cloud tops) |
 | `src/Ephemeris.{h,cpp}` | `sunDirectionEcef(unix s)` (low-precision solar coordinates + GMST), `elevationAzimuth`, `newYorkUtcOffsetHours` (EDT/EST). Pure C++ |
 | `src/GeoRef.{h,cpp}` | GEOID18 grid, tide-station MLLW↔NAVD88 offset, sea level, ECEF helpers |
@@ -329,7 +332,17 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   the solved heights to correct the 2 km products of the same scan. Release cost on the
   default box: window reads 1–8 ms, `resample` 20–40 ms, `cloudTopHeights` ~170 ms.
   Findings: `ACMC` `BCM` counts thin cirrus (95 % cloudy where HRRR says 65 %); `CCLC`
-  `TCF` is missing (65531) over the large high-cloud systems, valid mostly where clear.
+  `TCF` is missing (65531) over the large high-cloud systems, valid mostly where clear;
+  `CF1`…`CF5` are valid everywhere, stored as percent (u8 0–100, "units 1").
+- **GOES source** (`GoesSource`, plan item 4): runs only at the level *Satellite observed*
+  (~9 MB per scan, ~54 MB/h live; until the blend it only feeds the HUD `goes` line and
+  the panel's Sources). One scan for all four products (its cloud tops correct the
+  others): the newest starting ≤ the weather time, ≤ 30 min earlier, all products listed
+  (live: 5–15 min old). Listings per product and hour for [t − 30 min, t]; the choice waits
+  for all of them (else the first answer starts a download the second replaces). An hour
+  is **finished** 30 min after its end: its listing + files use the disk cache (replays,
+  `--offline`); unfinished hours use `Cache-Control: no-cache` for both and are re-listed
+  every `refreshSeconds` — so no live GOES offline. Decode 210–240 ms Release, ~1.8 s Debug.
 - `CloudGrid` has fixed cell counts and span (14.4°×10.2°, ≈ 1200×1130 km, default around
   New York; request box ±0.4° larger, formatted with `%g` so the New York URLs stay
   cache-compatible; the filter clips the box to the HRRR domain — cells beyond it are
@@ -355,7 +368,7 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   and their wind fields glide into the new ones (`CloudFrame::glide`, no jump).
 - **Cloud quality levels** (`CloudLevel`, Config.h): one per roadmap step, each adding to
   the previous ones, all kept selectable for comparison — Time & weather combo, key `8` =
-  the next level, script `cloudlevel shell|layers`, `--cloud-level`, persisted
+  the next level, script `cloudlevel shell|layers|satellite`, `--cloud-level`, persisted
   `weather.cloud_level` (the legacy key `weather.cloud_single` = shell / layers is still
   read, never written). A new step adds an enum value + a `kCloudLevels` row and tests
   `_cloudLevel >= …`; the level is logged (`… cloud quality … (--cloud-level …)`).
@@ -453,7 +466,7 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   496 (Jamaica Bay 600, go-to 657 when open), LOD 522, Tools 548. Time & weather
   tab: Now (1319, 105), date ◀ / ▶ 131, −1h / slider / +1h 157, Apply to sun 184,
   Cloud shadows 210, Quality combo (1450, 236) (items Simple shell 262, Layers + wind
-  282), Low/Mid/High 262, History header 288 (range
+  282, Satellite observed 302), Low/Mid/High 262, History header 288 (range
   combo (1330, 314), items 339 / 359 / 379, table header 339, rows every 19 px from
   350 with the current hour centred ≈ 426 — lower when the scroll is clamped near the
   newest hours: the next row is hit at y 449 either way), Sources 537. x of the
@@ -472,7 +485,8 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 - Disk cache `cache\<2 hex>\<fnv64>.bin` (URL verified on read), status 200 only;
   textual bodies are cached **except** for `exportImage` and `/cgi-bin/filter_` URLs
   (ArcGIS / NOMADS return errors as text). A `Cache-Control: no-cache` request header
-  skips the cache both ways (NOMADS file list). Debug and Release have separate caches
+  skips the cache both ways (NOMADS file list, GOES listings / scans of the running
+  hour). Debug and Release have separate caches
   unless `--cache-dir` is shared. `--offline`: WinHTTP never used, misses → 404.
 
 **Build / toolchain**
@@ -502,7 +516,7 @@ CLI: `--camera lon,lat,alt,heading,pitch` | `--lookat lon,lat,alt,heading,pitch,
 `--verbose` (`[D]` lines: every request, tile summaries), `--d3d-debug` (needs the *Graphics Tools* Windows
 feature — not installed on the dev machine), `--hud 0|1`, `--panel 0|1`, `--size WxH`, layer flags
 (`--no-terrain/--no-buildings/--no-water/--no-vessels/--no-clouds`, `--contours`, `--wireframe`,
-`--imagery esri|usgs|none`, `--no-facades`, `--no-fog`, `--no-cloud-shadows`, `--cloud-level shell|layers`), `--msaa 1|2|4|8`,
+`--imagery esri|usgs|none`, `--no-facades`, `--no-fog`, `--no-cloud-shadows`, `--cloud-level shell|layers|satellite`), `--msaa 1|2|4|8`,
 LOD tunables (`--terrain-sse`, `--terrain-max-level`, `--terrain-grid`, `--buildings-sse`,
 `--imagery-sse`), `--water-clarity`, `--shader-dir`, weather (`--weather-time
 YYYYMMDDHH[MM]|-N|live` = replay / forecast at that UTC time, `--apply-sun` = the sun at
@@ -523,14 +537,14 @@ Script commands (one per line, `#` comments; live input is ignored while a scrip
 | `drag left\|right x0 y0 x1 y1 [steps]` | synthetic orbit / pan through the real handlers |
 | `wheel x y notches` | synthetic zoom towards a pixel (logs the new `--camera`) |
 | `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off`, `key K` | toggles (`msaa on` = configured count, 4x if started with `--msaa 1`; `sun` = Apply to sun); `key` calls `keyCommand` directly |
-| `cloudlevel shell\|layers` | the cloud quality level |
+| `cloudlevel shell\|layers\|satellite` | the cloud quality level |
 | `weather live\|YYYYMMDDHH[MM]\|-N` | the weather time: live / a UTC time to the minute / N hours ago (replay or forecast; cross-fades) |
 | `weather here`, `weather center lon,lat\|default` | move the weather box to the camera (inside the HRRR domain) / a point / back to New York |
 | `set sections on\|off` | open / close every section of the shown settings-panel tab (once, next frame) |
 | `tab view\|weather` | select a settings-panel tab |
 | `click x y`, `scroll x y notches`, `type text` / `type <enter>` | real window messages through `onMessage` (panel first, scene gets the rest); logs `After click/scroll: --camera …` |
 | `netcdf url\|path [variable …]` | log a NetCDF-4 file read with `Hdf5` (variables, decoded stats; attributes with `--verbose`) + PNGs of the named 2D variables in the shot dir; `wait` covers it |
-| `goes url\|path …` | the GOES-R L2 files of one scan (ACHAC / CCLC / ACMC / CODC / CMIPC) on the weather box: navigation + parallax checks logged (`GOES …`, [data]), `goes_<scan>_<product>_<var>_flat\|parallax.png` + `hrrr_TCDC` (the bracket of the weather time, within 30 min) in the shot dir; `wait` covers it |
+| `goes url\|path …` | the GOES-R L2 files of one scan (ACHAC / CCLC / ACMC / CODC / CMIPC) on the weather box: navigation + parallax checks logged (`GOES …`, [data]), `goes_<scan>_<product>_<var>_flat\|parallax.png` + `hrrr_TCDC` (the bracket of the weather time, within 30 min) in the shot dir; `wait` covers it. Without arguments: PNGs of the scan the weather service loaded for the weather time (`goes_<scan>_scan_*`) |
 | `size WxH`, `sleep s`, `stats`, `log text`, `quit` | misc |
 
 Scripts: `regression.txt` (4 key views — run after every change), `shots_poi.txt`
@@ -560,7 +574,10 @@ independent decode and the files' own summary variables; run with `--no-terrain
 scan of 2026-10-11 (5 products, high deck) next to HRRR 00z, and the clear night scan of
 2026-10-10 09:01 whose band 13 shows Lake Ontario / Erie and the Maine coast through the
 landmark crosses; 13 + 4 MB once; expected values in its header; run with `--no-terrain
---no-buildings`).
+--no-buildings`), `goes_source_test.txt` (the GOES source at *Satellite observed*: 00:05 →
+the 00:01 scan with goes_nav_test's values and images, 00:00 → 23:56 of the previous
+day, the Boston box from the cached files, no requests at *Layers + wind*, live; ~13 MB
+once, then everything but live replays `--offline`; run with `--no-terrain --no-buildings`).
 Shots include the HUD and the panel (`--panel 0` / `set panel off` for clean scenes).
 
 Exit codes: 0 ok, 1 init failure, 2 bad arguments / `--help`, 3 a `wait` timed out; crash =
@@ -606,7 +623,8 @@ runs at ~15–30 fps while loading.
   shells at per-cell altitudes, wind drift, time blending, cheap cloud shadows, date /
   time UI, sun at the weather time); step 3 (GOES-19 observed clouds) is in progress
   (done: cloud quality combo, `Hdf5` reader, fixed-grid navigation + parallax correction
-  (`GoesGrid`); next: `GoesSource`, the blend), then volumetric clouds and lighting.
+  (`GoesGrid`), `GoesSource` (scans at the level *Satellite observed*); next: the blend into
+  `CloudFields`, `goes_test.txt`), then volumetric clouds and lighting.
 
 - Known: no tides (sea at NAVD88 0); pier decks absent in bare-earth lidar; Esri
   imagery terms for production (USGS alternative is ~2 m); first visit to an area is
