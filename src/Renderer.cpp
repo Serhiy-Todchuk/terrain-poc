@@ -877,6 +877,7 @@ void Renderer::beginFrame(const Camera& camera, const SceneSettings& settings) {
     // The single layer keeps one static noise phase (the fields still blend in time).
     fc.cloudMisc = glm::vec4(cf.b && !cf.single ? std::clamp(cf.weightB, 0.0f, 1.0f) : 0.0f, shadows ? 1.0f : 0.0f,
                              _settings.clouds ? 1.0f : 0.0f, cf.single ? 1.0f : 0.0f);
+    fc.cloudView = glm::vec4(std::clamp(cf.opacity, 0.0f, 1.0f), 0.0f, 0.0f, 0.0f);
   }
 
   D3D11_MAPPED_SUBRESOURCE mapped{};
@@ -1297,8 +1298,8 @@ void Renderer::renderCloudShadows() {
 }
 
 void Renderer::drawClouds() {
-  if (!_settings.clouds || !_psClouds) {
-    return;
+  if (!_settings.clouds || !_psClouds || _settings.cloud.opacity <= 0.0f) {
+    return; // fully transparent: the shadows (CSCloudShadow) still apply
   }
   // Full-screen pass; depth test against the scene (read-only DSV), no writes:
   // PSClouds outputs the shell depth.

@@ -81,6 +81,7 @@ struct AppConfig {
   bool cloudShadows = true;     // the clouds shade the scene
   bool cloudLayers[3] = {true, true, true}; // low / middle / high layers shown
   CloudLevel cloudLevel = CloudLevel::Layers; // cloud quality level (key 8 cycles)
+  double cloudTransparency = 0.0; // 0..1: the drawn clouds see-through (1 = invisible); shadows unchanged
   std::optional<std::pair<double, double>> weatherCenter; // lon, lat of the weather box; nullopt = New York
   int historyHours = 48;        // panel: weather history / forecast table +- hours
   std::optional<int64_t> weatherTime; // pinned weather time (unix s, UTC); nullopt = live

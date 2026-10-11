@@ -296,9 +296,18 @@ void App::panelLayers() {
          _buildings != nullptr);
   toggle("Water", &_scene.water, "4", "Sea surface at NAVD88 0 m (seabed visible through it)");
   toggle("Vessels", &_showVessels, "5", "Georeferenced test vessels");
-  toggle("Clouds", &_showClouds, "6",
-         "Live cloud layers (low / middle / high) from the NOAA HRRR model (3 km, hourly runs) in the weather box (default: around New York), "
-         "via the NOMADS grib filter; they drift with the HRRR winds. Date / time and layers below, status in the HUD");
+  // Clouds: the toggle and, on the same row, their transparency.
+  if (ImGui::Checkbox("Clouds", &_showClouds)) {
+    LOG_I("Settings panel: Clouds {}", _showClouds ? "on" : "off");
+  }
+  tooltip("Live cloud layers (low / middle / high) from the NOAA HRRR model (3 km, hourly runs) in the weather box "
+          "(default: around New York), via the NOMADS grib filter; they drift with the HRRR winds. Date / time and "
+          "layers in the Time & weather tab, status in the HUD");
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("6").x -
+                          ImGui::GetStyle().ItemSpacing.x);
+  cloudTransparencySlider("##cloudtransparency");
+  shortcut("6");
   toggle("Contours", &_scene.contours, "C", "Elevation contour lines (NAVD88) on land and seabed");
   if (_scene.contours) {
     ImGui::Indent();
@@ -308,7 +317,30 @@ void App::panelLayers() {
   }
 }
 
+// The clouds' transparency (the drawn clouds only: their shadows keep their
+// strength); the caller sets the width.
+void App::cloudTransparencySlider(const char* id) {
+  float percent = float(_cloudTransparency * 100.0);
+  ImGui::BeginDisabled(!_showClouds);
+  if (ImGui::SliderFloat(id, &percent, 0.0f, 100.0f, "%.0f %% transparent", ImGuiSliderFlags_AlwaysClamp)) {
+    _cloudTransparency = double(percent) / 100.0;
+  }
+  ImGui::EndDisabled();
+  tooltip("Transparency of the clouds: 0 % = as the weather makes them, 100 % = invisible. The cloud shadows "
+          "keep their strength (Cloud shadows / key 7 turns them off). Ctrl+click to type a value");
+  if (ImGui::IsItemDeactivatedAfterEdit()) {
+    LOG_I("Settings panel: cloud transparency {:.0f} % (--cloud-transparency {:.0f})", _cloudTransparency * 100.0,
+          _cloudTransparency * 100.0);
+  }
+}
+
 void App::panelWeather() {
+  // Above the sections, always visible: the same slider as in View > Layers.
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted("Clouds");
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+  cloudTransparencySlider("##cloudtransparency2");
   if (!section("Time & clouds", kSectionWeather) || !_weather) {
     return;
   }

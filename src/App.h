@@ -75,6 +75,7 @@ private:
   void drawPanelArrows(); // hide / show arrows of the HUD (top left) and the panel (top right)
   bool section(const char* label, PanelSection index); // collapsing header with persisted state
   void panelLayers();
+  void cloudTransparencySlider(const char* id); // the rest of the row; in Layers and atop Time & weather
   void panelWeather();
   void panelSources();
   void panelHistory();
@@ -145,6 +146,7 @@ private:
   bool _cloudLayerOn[3] = {true, true, true}; // low / middle / high
   CloudLevel _cloudLevel = CloudLevel::Layers; // cloud quality level (one per roadmap step)
   double _cloudAltitude = -1.0;  // all layers at this altitude (m MSL, --cloud-altitude); < 0: per-cell HRRR
+  double _cloudTransparency = 0.0; // 0..1, the drawn clouds (panel slider, --cloud-transparency)
   bool _sunFromTime = false;     // "Apply to sun": the sun (and the time-of-day light) at the weather time
   std::optional<std::pair<double, double>> _weatherCenter; // the weather box centre; nullopt = New York
   CloudGrid _weatherGrid;        // the box itself (service + renderer)

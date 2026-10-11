@@ -1,7 +1,8 @@
 # Settings panel (Dear ImGui, right) + statistics HUD (left): layout, input
 # routing (window messages: panel first, scene only what the panel leaves),
 # the two tabs (View, Time & weather), state changed by script/keys reflected
-# in the panel, the cloud quality combo, all sections open, the hide / show
+# in the panel, the cloud transparency sliders (View > Layers next to Clouds,
+# atop the Time & weather tab), the cloud quality combo, all sections open, the hide / show
 # arrows of both panels, panel
 # hidden (HUD shows the G hint), narrow window (no overlap).
 # Run: TerrainPOC.exe --script ..\..\scripts\panel_test.txt --shot-dir ..\..\shots\panel --offline
@@ -23,6 +24,11 @@ click 1312 184
 click 1312 236
 shot p2b_click_clouds_off
 click 1312 236
+# Cloud transparency: the slider next to the Clouds checkbox, clicked mid-way
+# (~48 %); the Time & weather tab shows the same value in its top row
+click 1466 236
+sleep 0.3
+shot p2m_cloud_transparency
 # Fog (Rendering) off, then on
 click 1312 340
 shot p2f_fog_off
@@ -33,36 +39,37 @@ click 1312 340
 click 1390 54
 sleep 0.3
 shot p2g_weather_tab
-click 1572 131
+click 1345 80        # its transparency slider at the left end: 0 %
+click 1559 157       # next day with data (the date row's right arrow; x with the scrollbar)
 wait
 shot p2c_next_day
-click 1319 157       # -1h
-click 1312 184       # Apply to sun on
+click 1319 183       # -1h
+click 1312 210       # Apply to sun on
 wait
 shot p2d_minus_1h_sun
-click 1312 184       # Apply to sun off
-click 1319 105       # Now
+click 1312 210       # Apply to sun off
+click 1319 131       # Now
 wait
 shot p2e_now_live
 # cloud quality combo: Simple shell (Low / Mid / High disabled), back to Layers + wind
-click 1450 236
+click 1450 262
 sleep 0.3
 shot p2k_cloud_quality_open
-click 1400 262       # Simple shell
+click 1400 288       # Simple shell
 sleep 0.3
 shot p2l_cloud_shell
-click 1450 236
-click 1400 282       # Layers + wind
+click 1450 262
+click 1400 308       # Layers + wind
 # history / forecast table: pin a cached hour, the table centres on it; the row
 # below pins the next cached hour (18:00 when cached); +-72 h range
 weather 2026101017
 wait
 shot p2h_history_17
-click 1440 449
+click 1440 475
 wait
 shot p2i_history_row_18
-click 1330 314
-click 1324 379       # +-72 h
+click 1330 340
+click 1324 405       # +-72 h
 sleep 0.3
 shot p2j_history_72h
 weather live
@@ -108,6 +115,7 @@ set fog off
 set shadows off
 set cloudhigh off
 cloudlevel shell
+cloudtransparency 60
 set sun on
 set msaa off
 set vsync off
@@ -120,6 +128,7 @@ set fog on
 set shadows on
 set cloudhigh on
 cloudlevel layers
+cloudtransparency 0
 set sun off
 set msaa on
 set vsync on

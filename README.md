@@ -168,12 +168,13 @@ time, cloud tops, mask, optical depth), HTTP, GPU and process memory, log
 counts, data credits.
 
 The **settings panel** (right, Dear ImGui) has two tabs. **View**: every
-toggle with its key, MSAA sample count, fog, vsync, water absorption, contour
+toggle with its key (the Clouds row also has the clouds' transparency, 0–100 %:
+the scene shows through, the cloud shadows stay), MSAA sample count, fog, vsync, water absorption, contour
 interval, camera views (the harness views), go-to
 (`lon,lat,alt,heading,pitch[,range]` or a pasted `--camera …`), copy `--camera`
 to the clipboard, field of view, fly speed, terrain / buildings screen-space
 error (live), screenshot, shader reload, stats to the log. **Time & weather**:
-*Now* (live), the date (only days with weather data, ◀ ▶), the time of day
+the same cloud transparency slider at the top, *Now* (live), the date (only days with weather data, ◀ ▶), the time of day
 (only hours with data), ±1 h, *Apply to sun*, cloud shadows, the cloud
 quality (*Simple shell* / *Layers + wind* / *Satellite observed*), the cloud layers low / middle /
 high; **History & forecast** — the hours with data ±24 / 48 /
@@ -229,6 +230,7 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   | `wheel x y notches` | synthetic zoom towards a pixel |
   | `key K`, `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off` | toggles |
   | `cloudlevel shell\|layers\|satellite` | the cloud quality level |
+  | `cloudtransparency PCT` | the clouds' transparency, 0..100 % (the panel sliders, `--cloud-transparency`) |
   | `weather live\|YYYYMMDDHH[MM]\|-N` | the weather time: live, a fixed UTC time or N hours ago (replay / forecast, cross-fades) |
   | `weather here`, `weather center lon,lat\|default` | move the weather box to the camera / a point / back to New York |
   | `set sections on\|off` | open / close every section of the shown settings-panel tab (once) |
@@ -244,7 +246,7 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   `msaa_test.txt` (MSAA off/on comparison), `facades_test.txt` (plain vs
   textured buildings), `panel_test.txt` (settings panel: clicks, wheel and
   typing routed panel-vs-scene, both tabs, weather date / time and sun
-  controls, the cloud quality combo, the history table, sections, the hide / show arrows, hidden,
+  controls, the cloud transparency sliders, the cloud quality combo, the history table, sections, the hide / show arrows, hidden,
   narrow window), `settings_test_a.txt` + `settings_test_b.txt` (persisted
   settings: phase A changes the UI and quits with `--settings file`, phase B
   starts with the same file and shows the restored state, `--hud 1` overriding

@@ -118,6 +118,8 @@ Data / rendering:
                                the low / middle / high slabs drifting with the wind; satellite =
                                step 3 in progress, + the GOES-19 scan of the weather time
                                (loaded, ~9 MB per scan; not blended into the clouds yet)
+  --cloud-transparency PCT     the drawn clouds' transparency, 0..100 % (default 0: as the
+                               weather makes them; their shadows keep their strength)
   --weather-center lon,lat|default
                                centre of the ~1200 x 1130 km weather box (default: New York; the
                                panel's "Fetch weather here" moves it to the camera; HRRR covers
@@ -153,7 +155,7 @@ HUD or H hides the HUD) has two tabs. View: every toggle, MSAA samples, vsync,
 water clarity, contour interval, field of view, fly speed, LOD (screen-space
 error), camera views / go-to / copy, screenshot, shader reload. Time & weather:
 the weather date / time (limited to the hours with weather data, Now = live),
-sun at that time, cloud shadows, the cloud quality level (simple shell / layers +
+sun at that time, cloud transparency, cloud shadows, the cloud quality level (simple shell / layers +
 wind / satellite observed), cloud layers low / middle / high, the history /
 forecast table of the hours with data (+-24..72 h; a row pins the time), the
 weather sources, the weather box centre + "Fetch weather here" and the loaded datasets.
@@ -262,6 +264,9 @@ std::optional<AppConfig> parseCommandLine(int argc, char** argv, const AppConfig
     } else if (a == "--cloud-altitude") {
       if (!next(v)) return fail("--cloud-altitude expects meters");
       cfg.cloudAltitude = std::stod(v);
+    } else if (a == "--cloud-transparency") {
+      if (!next(v)) return fail("--cloud-transparency expects a percentage 0..100");
+      cfg.cloudTransparency = std::clamp(std::stod(v), 0.0, 100.0) / 100.0;
     } else if (a == "--cloud-level") {
       const std::optional<CloudLevel> level = next(v) ? parseCloudLevel(v) : std::nullopt;
       if (!level) return fail("--cloud-level expects shell, layers or satellite");

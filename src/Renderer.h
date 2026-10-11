@@ -47,6 +47,7 @@ struct CloudFrame {
   // The step-1 look: one thin shell (the datasets' single layer in slice 0,
   // static noise of one phase, no slab samples); the app passes no drift.
   bool single = false;
+  float opacity = 1.0f; // the drawn clouds (1 - the panel's transparency); shadows unaffected
 };
 
 struct SceneSettings {
@@ -157,6 +158,7 @@ private:
     glm::vec4 cloudLayers;    // xyz: layer drawn (1/0), w: manual altitude (m MSL, < 0: per cell)
     glm::vec4 cloudNoise[3];  // per layer: xy noise seed of phase a, zw of phase b (km; + the per-cell drift)
     glm::vec4 cloudMisc;      // x: weight of phase b, y: shadows on, z: clouds on, w: single layer (step-1 look)
+    glm::vec4 cloudView;      // x: opacity of the drawn clouds (1 - transparency)
   };
   // Mirrors cbuffer CloudBlendConstants (CSBlendClouds).
   struct CloudBlendConstants {

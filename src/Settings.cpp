@@ -97,6 +97,7 @@ const std::vector<Key>& keys() {
       doubleKey("layers.contour_interval", &AppConfig::contourInterval, 0.25, 50.0),
       boolKey("weather.apply_sun", &AppConfig::sunFromTime),
       boolKey("weather.cloud_shadows", &AppConfig::cloudShadows),
+      doubleKey("weather.cloud_transparency", &AppConfig::cloudTransparency, 0.0, 1.0),
       {"weather.cloud_layers",
        [](AppConfig& c, const std::string& v) {
          if (v.size() != 3 || v.find_first_not_of("01") != std::string::npos) {

@@ -2,7 +2,8 @@
 # same --settings file, plus --hud 1 (the command line overrides the file).
 #   TerrainPOC.exe --script ..\..\scripts\settings_test_b.txt --shot-dir ..\..\shots\settings --settings ..\..\shots\settings\test.ini --offline --hud 1
 # Expected: water off, fog off, MSAA off, high clouds off, cloud quality Simple
-# shell (HUD "layers    simple shell ..."), contours on, the Time & weather tab with its
+# shell (HUD "layers    simple shell ..."), clouds 40 % transparent (HUD clouds
+# line, the slider atop the weather tab), contours on, the Time & weather tab with its
 # sections closed, the HUD shown (--hud 1); the log has "Settings: settings ...:
 # N values".
 lookat -74.00753,40.66005,0,330,-30,1800

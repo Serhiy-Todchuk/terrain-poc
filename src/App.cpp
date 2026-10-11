@@ -118,6 +118,7 @@ bool App::init() {
   _showVessels = _cfg.vessels;
   _showClouds = _cfg.clouds;
   _cloudAltitude = _cfg.cloudAltitude;
+  _cloudTransparency = std::clamp(_cfg.cloudTransparency, 0.0, 1.0);
   _sunFromTime = _cfg.sunFromTime;
   _scene.water = _cfg.water;
   _scene.contours = _cfg.contours;
@@ -632,6 +633,7 @@ void App::updateClouds() {
     }
   }
   cf.manualAltitude = _cloudAltitude;
+  cf.opacity = float(1.0 - _cloudTransparency);
   _scene.clouds = true;
 }
 
@@ -1206,6 +1208,16 @@ void App::stepScript(double dt) {
     if (!setOption(arg(0), arg(1) == "on" || arg(1) == "1" || arg(1) == "true")) {
       LOG_E("script[{}]: unknown option {}", c.line, arg(0));
     }
+  } else if (c.verb == "cloudtransparency") {
+    // cloudtransparency PCT : the drawn clouds' transparency, 0..100 %
+    char* end = nullptr;
+    const double pct = std::strtod(arg(0).c_str(), &end);
+    if (arg(0).empty() || *end != '\0' || pct < 0.0 || pct > 100.0) {
+      LOG_E("script[{}]: cloudtransparency expects a percentage 0..100", c.line);
+    } else {
+      _cloudTransparency = pct / 100.0;
+      LOG_I("script cloudtransparency: cloud transparency {:.0f} % (--cloud-transparency {:.0f})", pct, pct);
+    }
   } else if (c.verb == "cloudlevel") {
     // cloudlevel shell | layers | satellite | N : the cloud quality level
     if (const std::optional<CloudLevel> level = parseCloudLevel(arg(0))) {
@@ -1317,6 +1329,7 @@ AppConfig App::currentSettings() const {
     c.cloudLayers[l] = _cloudLayerOn[l];
   }
   c.cloudLevel = _cloudLevel;
+  c.cloudTransparency = _cloudTransparency;
   c.historyHours = _historyHours;
   c.weatherCenter = _weatherCenter;
   c.facades = _scene.facades;
@@ -1455,6 +1468,9 @@ std::vector<std::wstring> App::weatherHudLines() const {
   }
   if (_cloudB.fields) {
     data += " -> " + hour(b) + " " + std::to_string(int(std::lround(w * 100.0))) + " %";
+  }
+  if (_cloudTransparency > 0.0) {
+    data += " | " + std::to_string(int(std::lround(_cloudTransparency * 100.0))) + " % transparent";
   }
   lines.push_back(wformat("clouds    %s%s%s", data.c_str(), activity.empty() ? "" : " | ", activity.c_str()));
   if (_cloudLevel == CloudLevel::Shell) {

@@ -31,6 +31,7 @@ cbuffer FrameConstants : register(b0)
     float4   gCloudNoise[3]; // per layer: xy noise seed of phase a, zw of phase b (km east / north)
     float4   gCloudMisc;   // x: weight of phase b, y: cloud shadows on, z: clouds on,
                            // w: single layer (the step-1 look: slice 0 only, a thin shell, static noise)
+    float4   gCloudView;   // x: opacity of the drawn clouds (1 - the panel's transparency; shadows unaffected)
 };
 
 cbuffer DrawConstants : register(b1)
@@ -1042,9 +1043,10 @@ float4 PSClouds(SkyOut i, out float depthOut : SV_Depth) : SV_Target
 
     float viewZ = (nearest < 1e29 ? nearest : 1.0) * -dirView.z;
     depthOut = gProjParams.z / max(viewZ, 1e-3); // reversed Z
-    if (nearest >= 1e29 || alphaOut < 0.004)
+    if (nearest >= 1e29 || alphaOut * gCloudView.x < 0.004)
         discard;
-    return float4(color / max(alphaOut, 1e-4), alphaOut);
+    // Transparency (panel): the clouds blend over the scene by the opacity only.
+    return float4(color / max(alphaOut, 1e-4), alphaOut * gCloudView.x);
 }
 
 // ---------------------------------------------------------------------------

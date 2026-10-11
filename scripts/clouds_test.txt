@@ -107,6 +107,12 @@ shot cs3_shell_30km_10min_later
 key 8
 sleep 0.2
 shot cs4_key8_layers
+# Cloud transparency 60 % (the panel slider): the scene shows through the
+# clouds, their shadows keep their strength
+cloudtransparency 60
+sleep 0.2
+shot cs5_transparency_60
+cloudtransparency 0
 
 # Live again; keys 6 (clouds) and 7 (shadows)
 weather live

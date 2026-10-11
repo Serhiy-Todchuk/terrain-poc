@@ -10,6 +10,7 @@ set msaa off
 set vsync off
 set cloudhigh off
 cloudlevel shell     # the step-1 look (HUD: "simple shell")
+cloudtransparency 40 # HUD clouds line: "40 % transparent"
 set contours on
 key H                # HUD hidden
 tab weather
