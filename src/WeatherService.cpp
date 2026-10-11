@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "WeatherService.h"
 
+#include "CloudBlend.h"
 #include "Grib2.h"
 #include "GridFill.h"
 #include "Log.h"
@@ -404,17 +405,7 @@ Decoded decode(std::span<const std::byte> cloudBytes, std::span<const std::byte>
     }
   }
   // Keep the layers apart and inside their NCEP pressure bands.
-  for (size_t k = 0; k < n; ++k) {
-    float& a0 = cf.layers[0].altitude[k];
-    float& a1 = cf.layers[1].altitude[k];
-    float& a2 = cf.layers[2].altitude[k];
-    a0 = std::clamp(a0, 150.0f, 4000.0f);
-    a1 = std::max(std::clamp(a1, 2000.0f, 8500.0f), a0 + 700.0f);
-    a2 = std::max(std::clamp(a2, 5500.0f, 13500.0f), a1 + 1000.0f);
-    for (CloudLayer& layer : cf.layers) {
-      layer.thickness[k] = std::clamp(layer.thickness[k], 100.0f, 6000.0f);
-    }
-  }
+  cf.constrainLayers();
 
   // In-cloud optical depth: the larger of a thickness heuristic (step 1: water
   // clouds 3 + 4 per km, ice 1) and the cloud water / ice paths, tau = 3/2 LWP /
@@ -451,69 +442,24 @@ Decoded decode(std::span<const std::byte> cloudBytes, std::span<const std::byte>
     }
   }
 
-  // Summary: domain means; per layer the cover-weighted median altitude within
-  // 150 km of the box centre; the layer an observer there mostly sees from below
-  // (random overlap: low clouds hide middle ones, both hide high ones).
-  double total = 0.0;
-  for (size_t k = 0; k < n; ++k) {
-    total += cf.cover[k];
-  }
-  cf.meanCover = total / double(n);
-  double seen[kCloudLayerCount] = {};
-  for (int l = 0; l < kCloudLayerCount; ++l) {
-    CloudLayer& layer = cf.layers[size_t(l)];
-    double sum = 0.0;
-    std::vector<std::pair<float, float>> heights; // altitude, weight
-    float nearest = kDefaultBase[l];
-    double nearestD2 = 1e30;
-    for (int y = 0; y < ny; ++y) {
-      for (int x = 0; x < nx; ++x) {
-        const size_t k = size_t(y) * size_t(nx) + size_t(x);
-        sum += layer.cover[k];
-        const double dx = (g.lon(x) - poiLon) * kmPerLon, dy = (g.lat(y) - poiLat) * 111.32;
-        const double d2 = dx * dx + dy * dy;
-        if (d2 < nearestD2) {
-          nearestD2 = d2;
-          nearest = layer.altitude[k];
-        }
-        if (d2 <= 150.0 * 150.0) {
-          const float c[3] = {cf.layers[0].cover[k], cf.layers[1].cover[k], cf.layers[2].cover[k]};
-          const float visible = l == 0 ? c[0] : l == 1 ? c[1] * (1.0f - c[0]) : c[2] * (1.0f - c[0]) * (1.0f - c[1]);
-          seen[l] += visible;
-          if (layer.cover[k] > kPresent) {
-            heights.emplace_back(layer.altitude[k], layer.cover[k]);
-          }
-        }
-      }
-    }
-    layer.meanCover = sum / double(n);
-    layer.altitudeNearPoi = nearest;
-    double weight = 0.0;
-    for (const auto& [h, w] : heights) {
-      weight += w;
-    }
-    if (weight >= 2.0) {
-      std::sort(heights.begin(), heights.end());
-      double cumulative = 0.0;
-      for (const auto& [h, w] : heights) {
-        cumulative += w;
-        if (cumulative >= 0.5 * weight) {
-          layer.altitudeNearPoi = h;
-          break;
-        }
-      }
-    }
-  }
-  const int dominant = int(std::max_element(std::begin(seen), std::end(seen)) - std::begin(seen));
-  const char* names[kCloudLayerCount] = {"low", "middle", "high"};
-  cf.layerName = seen[dominant] < 1.0 ? "none" : names[dominant];
-  cf.layerAltitude = cf.layers[size_t(dominant)].altitudeNearPoi;
+  // Summary: domain means, altitudes near the box centre, the layer seen from below there.
+  cf.summarize();
 
   out.fields = std::move(fields);
   return out;
 }
 
 } // namespace HrrrSource
+
+} // namespace
+
+namespace {
+
+struct ObserveResult {
+  std::shared_ptr<CloudFields> fields;
+  CloudBlend::Stats stats;
+  std::string error;
+};
 
 } // namespace
 
@@ -556,6 +502,9 @@ void WeatherService::setGrid(const CloudGrid& grid) {
   _summaries.clear();
   _cached.clear();
   _failed.clear();
+  _observed.clear();
+  _observing = 0;
+  _observePending = false;
   _probeDone = false;
   _probeBusy = false;
   _fetchBusy = false;
@@ -591,6 +540,7 @@ void WeatherService::setPinnedTime(std::optional<int64_t> t) {
 void WeatherService::update(bool active, bool satellite) {
   _satellite = active && satellite;
   _goes->update(time(), _satellite);
+  _observePending = false;
   if (!_probeDone && !_probeBusy) {
     startProbe();
   }
@@ -653,6 +603,92 @@ void WeatherService::update(bool active, bool satellite) {
     }
     _loaded.erase(farthest);
   }
+  updateObserved(t);
+}
+
+void WeatherService::updateObserved(int64_t t) {
+  // The corrections wait for the final datasets and scan of t.
+  if (!_satellite || _fetchBusy || _pending || _goes->busy()) {
+    return;
+  }
+  const std::shared_ptr<const GoesScan> scan = _goes->scan(t);
+  if (!scan) {
+    return;
+  }
+  const Bracket model = modelBracket(t);
+  for (const std::shared_ptr<const CloudFields>& f : {model.before, model.after}) {
+    if (!f || CloudBlend::timeWeight(f->validTime, scan->start) <= 0.0) {
+      continue;
+    }
+    const Observed* o = findObserved(f, scan);
+    if (!o) {
+      observe(f, scan);
+      _observePending = true;
+    } else if (!o->fields && !o->failed) {
+      _observePending = true;
+    }
+  }
+  // Keep the bracket's corrections and a few older ones (scrubbing back).
+  constexpr size_t kMaxObserved = 4;
+  for (auto it = _observed.begin(); _observed.size() > kMaxObserved && it != _observed.end();) {
+    const bool current = it->scan == scan && (it->model == model.before || it->model == model.after);
+    const bool building = !it->fields && !it->failed;
+    it = current || building ? std::next(it) : _observed.erase(it);
+  }
+}
+
+const WeatherService::Observed* WeatherService::findObserved(const std::shared_ptr<const CloudFields>& model,
+                                                             const std::shared_ptr<const GoesScan>& scan) const {
+  for (const Observed& o : _observed) {
+    if (o.model == model && o.scan == scan) {
+      return &o;
+    }
+  }
+  return nullptr;
+}
+
+void WeatherService::observe(std::shared_ptr<const CloudFields> model, std::shared_ptr<const GoesScan> scan) {
+  _observed.push_back(Observed{model, scan, nullptr, false});
+  ++_observing;
+  const int generation = _generation;
+  std::weak_ptr<WeatherService> weak = weak_from_this();
+  _asyncSystem
+      .runInWorkerThread([model, scan]() {
+        ObserveResult r;
+        r.fields = CloudBlend::blend(*model, *scan, r.stats, r.error);
+        return r;
+      })
+      .thenInMainThread([weak, generation, model, scan](ObserveResult&& r) {
+        const std::shared_ptr<WeatherService> self = weak.lock();
+        if (!self || self->_generation != generation) {
+          return; // the box moved meanwhile
+        }
+        --self->_observing;
+        auto it = std::find_if(self->_observed.begin(), self->_observed.end(),
+                               [&](const Observed& o) { return o.model == model && o.scan == scan; });
+        if (it == self->_observed.end()) {
+          return;
+        }
+        const std::string what = "HRRR " + formatTime(model->cycle).substr(0, 10) + " " +
+                                 describeRun(model->cycle, model->forecastHours) + " + GOES-19 scan " +
+                                 formatTime(scan->start).substr(11, 5);
+        if (!r.fields) {
+          it->failed = true; // shown without the scan
+          SPDLOG_LOGGER_ERROR(Log::data(), "Clouds: {}: {}", what, r.error);
+          return;
+        }
+        const CloudBlend::Stats& s = r.stats;
+        LOG_I("Clouds: {} -> valid {} (the scan carried {:+.0f} min by the layer winds, weight {:.2f}): cover low "
+              "{:.0f} -> {:.0f} %, middle {:.0f} -> {:.0f} %, high {:.0f} -> {:.0f} %; observed from above {:.0f} / "
+              "{:.0f} / {:.0f} %; tops set {:.0f} / {:.0f} / {:.0f} %; optical depth from COD {:.0f} % (daylight "
+              "{:.0f} %); seen from below near the box centre: {}; {:.0f} ms",
+              what, formatTime(model->validTime).substr(11, 5), s.minutes, s.weight, s.coverBefore[0] * 100.0,
+              s.coverAfter[0] * 100.0, s.coverBefore[1] * 100.0, s.coverAfter[1] * 100.0, s.coverBefore[2] * 100.0,
+              s.coverAfter[2] * 100.0, s.seen[0] * 100.0, s.seen[1] * 100.0, s.seen[2] * 100.0, s.topShare[0] * 100.0,
+              s.topShare[1] * 100.0, s.topShare[2] * 100.0, s.opticalDepthShare * 100.0, s.daylight * 100.0,
+              r.fields->layerName, s.ms);
+        it->fields = std::move(r.fields);
+      });
 }
 
 std::vector<int64_t> WeatherService::neededHours(int64_t t) const {
@@ -724,6 +760,20 @@ int64_t WeatherService::newestRun() const {
 }
 
 WeatherService::Bracket WeatherService::bracket(int64_t t) const {
+  Bracket b = modelBracket(t);
+  const std::shared_ptr<const GoesScan> scan = goesScan(t);
+  if (!scan) {
+    return b;
+  }
+  for (std::shared_ptr<const CloudFields>* f : {&b.before, &b.after}) {
+    if (const Observed* o = *f ? findObserved(*f, scan) : nullptr; o && o->fields) {
+      *f = o->fields;
+    }
+  }
+  return b;
+}
+
+WeatherService::Bracket WeatherService::modelBracket(int64_t t) const {
   Bracket b;
   const auto after = _loaded.upper_bound(t);
   if (after != _loaded.begin() && t - std::prev(after)->first <= kMaxBracketGap) {
@@ -1054,6 +1104,9 @@ std::string WeatherService::activity() const {
   add(_problem);
   if (_satellite) {
     add(_goes->activity());
+  }
+  if (_observing > 0) {
+    add("blending the GOES-19 scan into HRRR");
   }
   return s;
 }

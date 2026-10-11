@@ -94,6 +94,8 @@
     <ClCompile Include="src\AppPanel.cpp" />
     <ClCompile Include="src\BuildingsLoader.cpp" />
     <ClCompile Include="src\Camera.cpp" />
+    <ClCompile Include="src\CloudBlend.cpp" />
+    <ClCompile Include="src\CloudFields.cpp" />
     <ClCompile Include="src\Config.cpp" />
     <ClCompile Include="src\ElevationService.cpp" />
     <ClCompile Include="src\Ephemeris.cpp" />
@@ -144,6 +146,7 @@
     <ClInclude Include="src\App.h" />
     <ClInclude Include="src\BuildingsLoader.h" />
     <ClInclude Include="src\Camera.h" />
+    <ClInclude Include="src\CloudBlend.h" />
     <ClInclude Include="src\CloudFields.h" />
     <ClInclude Include="src\Config.h" />
     <ClInclude Include="src\ElevationService.h" />

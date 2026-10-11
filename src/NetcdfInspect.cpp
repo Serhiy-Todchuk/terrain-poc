@@ -717,6 +717,41 @@ void writeGoesScanImages(const CesiumAsync::AsyncSystem& asyncSystem, std::share
       .thenInMainThread([](std::vector<Image>&& out) { writeImages(out); });
 }
 
+void writeCloudFieldImages(const CesiumAsync::AsyncSystem& asyncSystem, std::shared_ptr<const CloudFields> fields,
+                           std::filesystem::path imageDir) {
+  asyncSystem
+      .runInWorkerThread([fields = std::move(fields), imageDir = std::move(imageDir)]() {
+        const CloudFields& f = *fields;
+        std::string tag = "fields_" + WeatherService::formatCompact(f.validTime) + "_";
+        tag += f.observedTime ? "goes" + WeatherService::formatCompact(f.observedTime).substr(8) : std::string("hrrr");
+        if (!(f.grid == CloudGrid())) {
+          tag += fmt::format("_at_{:.2f}_{:.2f}", f.grid.centreLon(), f.grid.centreLat());
+        }
+        std::vector<Image> out;
+        auto add = [&](const std::vector<float>& values, const std::string& name, double lo, double hi) {
+          Image image = gridImage(values, f.grid, lo, hi, false);
+          image.path = imageDir / (tag + "_" + name + ".png");
+          out.push_back(std::move(image));
+        };
+        const char* names[kCloudLayerCount] = {"low", "mid", "high"};
+        for (int l = 0; l < kCloudLayerCount; ++l) {
+          const CloudLayer& layer = f.layers[size_t(l)];
+          std::vector<float> top(layer.altitude.size());
+          for (size_t k = 0; k < top.size(); ++k) {
+            top[k] = layer.altitude[k] + layer.thickness[k];
+          }
+          add(layer.cover, std::string(names[l]) + "_cover", 0.0, 1.0);
+          add(layer.altitude, std::string(names[l]) + "_base", 0.0, 15000.0);
+          add(top, std::string(names[l]) + "_top", 0.0, 15000.0);
+          add(layer.opticalDepth, std::string(names[l]) + "_tau", 0.0, 40.0);
+        }
+        SPDLOG_LOGGER_INFO(Log::data(), "Cloud fields {} valid {}: {} images", f.source,
+                           WeatherService::formatTime(f.validTime), out.size());
+        return out;
+      })
+      .thenInMainThread([](std::vector<Image>&& out) { writeImages(out); });
+}
+
 void inspectGoesScan(const std::shared_ptr<HttpAssetAccessor>& accessor, const CesiumAsync::AsyncSystem& asyncSystem,
                      std::vector<std::string> sources, const CloudGrid& grid,
                      std::vector<std::shared_ptr<const CloudFields>> hrrr, std::filesystem::path imageDir) {

@@ -32,7 +32,9 @@
 //    stay valid) and "dynamics" (layer winds, cloud water / ice); without the
 //    second one clouds do not drift and optical depth falls back to a heuristic.
 //  * Step 3: GOES-19 scans (GoesSource) for the same weather time and box, only
-//    while the satellite level asks for them.
+//    while the satellite level asks for them; once the datasets and the scan
+//    of the weather time are loaded, each dataset of the bracket is corrected
+//    by the scan (CloudBlend, worker thread) and bracket() returns those.
 class WeatherService : public std::enable_shared_from_this<WeatherService> {
 public:
   struct Options {
@@ -67,11 +69,14 @@ public:
   const GoesSource& goes() const { return *_goes; }
 
   // Loaded datasets around `t`: the latest valid at or before t and the
-  // earliest after t, each at most 6 h away; either can be null.
+  // earliest after t, each at most 6 h away; either can be null. At the
+  // satellite level each one corrected by the GOES-19 scan of t once that is
+  // built (until then, and without a scan, the model dataset).
   struct Bracket {
     std::shared_ptr<const CloudFields> before, after;
   };
   Bracket bracket(int64_t t) const;
+  Bracket modelBracket(int64_t t) const; // the HRRR datasets alone
 
   // Valid hours (unix seconds) with data, sorted: online file lists + disk cache.
   const std::vector<int64_t>& availableHours() const { return _available; }
@@ -100,8 +105,11 @@ public:
   std::vector<HourInfo> catalog() const;
   int64_t newestRun() const; // newest listed / cached run (unix seconds), 0 = none
 
-  // Catalog / download / decode in flight, or a needed hour not loaded yet.
-  bool busy() const { return _probeBusy || _listingBusy || _fetchBusy || _pending || _goes->busy(); }
+  // Catalog / download / decode in flight, a needed hour not loaded yet, or a
+  // dataset of the bracket not corrected by the scan yet (satellite level).
+  bool busy() const {
+    return _probeBusy || _listingBusy || _fetchBusy || _pending || _goes->busy() || _observing > 0 || _observePending;
+  }
   std::string activity() const; // what is going on / the last problem ("" when idle and fine)
 
   // "YYYYMMDDHH[MM]" (UTC) or "-N" (N hours before the current hour) -> unix seconds.
@@ -121,6 +129,13 @@ private:
     Candidate candidate;
   };
   struct FetchResult;
+  // A dataset corrected by a scan (CloudBlend::blend).
+  struct Observed {
+    std::shared_ptr<const CloudFields> model;
+    std::shared_ptr<const GoesScan> scan;
+    std::shared_ptr<const CloudFields> fields; // null while being built, or when it failed
+    bool failed = false;
+  };
 
   void startProbe();
   void startListing();
@@ -130,6 +145,10 @@ private:
   std::optional<Candidate> best(int64_t validTime) const; // newest run listed or cached
   std::vector<int64_t> neededHours(int64_t t) const;
   void rebuildCatalog();
+  void updateObserved(int64_t t); // starts the corrections the bracket of t needs
+  void observe(std::shared_ptr<const CloudFields> model, std::shared_ptr<const GoesScan> scan);
+  const Observed* findObserved(const std::shared_ptr<const CloudFields>& model,
+                               const std::shared_ptr<const GoesScan>& scan) const;
 
   std::shared_ptr<HttpAssetAccessor> _accessor;
   CesiumAsync::AsyncSystem _asyncSystem;
@@ -153,6 +172,9 @@ private:
 
   std::shared_ptr<GoesSource> _goes; // step 3: the satellite scans
   bool _satellite = false;           // GOES scans wanted (last update)
+  std::vector<Observed> _observed;   // datasets corrected by a scan (the bracket's + a few older)
+  int _observing = 0;                // corrections in flight
+  bool _observePending = false;      // the bracket needs a correction that is not built yet
 
   int _generation = 0;   // incremented by setGrid: stale continuations are ignored
   std::string _activity; // what is in flight (HUD)

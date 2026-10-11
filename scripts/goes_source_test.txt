@@ -20,6 +20,9 @@
 #   decoded for that box (goes_202610102356_scan_at_-71.06_42.36_*.png).
 #   Layers + wind: no GOES requests after the "GOES idle" note; live at
 #   Satellite observed: the newest complete scan (5-15 min old), HUD line "goes".
+#   Every scan corrects the HRRR hours of the bracket (CloudBlend): one
+#   "Clouds: HRRR ... + GOES-19 scan ... -> valid ..." line per hour and scan
+#   (00:05: high cover 54 -> 82 %), HUD "blended into HRRR".
 weather 202610110005
 cloudlevel satellite
 lookat -74.0,40.66,0,0,-60,35000

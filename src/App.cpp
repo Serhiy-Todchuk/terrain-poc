@@ -2,6 +2,7 @@
 #include "App.h"
 
 #include "BuildingsLoader.h"
+#include "CloudBlend.h"
 #include "Ephemeris.h"
 #include "GeoRef.h"
 #include "Log.h"
@@ -1292,8 +1293,20 @@ void App::stepScript(double dt) {
         LOG_E("script[{}]: goes: no GOES scan loaded for the weather time (cloudlevel satellite, then wait)", c.line);
       }
     } else {
-      const WeatherService::Bracket bracket = _weather->bracket(int64_t(std::floor(weatherTime())));
+      const WeatherService::Bracket bracket = _weather->modelBracket(int64_t(std::floor(weatherTime())));
       inspectGoesScan(_http, *_asyncSystem, c.args, _weather->grid(), {bracket.before, bracket.after}, _cfg.shotDir);
+    }
+  } else if (c.verb == "cloudfields") {
+    // cloudfields : PNGs of the datasets the clouds show (per layer cover, base,
+    // top, optical depth), HRRR or corrected by the GOES-19 scan. `wait` covers it.
+    if (!_cloudA.fields) {
+      LOG_E("script[{}]: cloudfields: no cloud dataset shown (clouds on, then wait)", c.line);
+    } else {
+      for (const std::shared_ptr<const CloudFields>& f : {_cloudA.fields, _cloudB.fields}) {
+        if (f) {
+          writeCloudFieldImages(*_asyncSystem, f, _cfg.shotDir);
+        }
+      }
     }
   } else if (c.verb == "log") {
     LOG_I("script note: {}", joinedArgs);
@@ -1421,7 +1434,8 @@ std::vector<std::wstring> App::weatherHudLines() const {
     return lines;
   }
   const std::string activity = _weather->activity();
-  // Step 3 in progress: the GOES-19 scan loaded for the weather time (not blended yet).
+  // Step 3: the GOES-19 scan loaded for the weather time and whether the shown
+  // datasets carry it (WeatherService::bracket corrects them once it is loaded).
   auto goesLine = [&]() {
     if (_cloudLevel < CloudLevel::Satellite) {
       return;
@@ -1446,7 +1460,25 @@ std::vector<std::wstring> App::weatherHudLines() const {
       snprintf(buf, sizeof(buf), ", tau %.1f", s.meanOpticalDepth);
       text += buf;
     }
-    lines.push_back(wformat("goes      GOES-19 %s (not blended yet)", text.c_str()));
+    std::string blended;
+    for (const CloudFields* f : {_cloudA.fields.get(), _cloudB.fields.get()}) {
+      if (!f) {
+        continue;
+      }
+      if (f->observedTime == s.start) {
+        blended = "blended into HRRR";
+        break;
+      }
+      if (f->observedTime) {
+        blended = "blended: scan " + WeatherService::formatTime(f->observedTime).substr(11, 5) + " (updating)";
+      } else if (blended.empty() && CloudBlend::timeWeight(f->validTime, s.start) > 0.0) {
+        blended = "not blended yet";
+      }
+    }
+    if (blended.empty()) {
+      blended = "not blended: no HRRR hour within 3 h of the scan";
+    }
+    lines.push_back(wformat("goes      GOES-19 %s | %s", text.c_str(), blended.c_str()));
   };
   if (!_cloudA.fields) {
     lines.push_back(wformat("clouds    %s", activity.empty() ? "no data" : activity.c_str()));

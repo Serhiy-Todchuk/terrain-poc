@@ -1,9 +1,10 @@
 # Live Weather / Clouds — Roadmap and Plan
 
-Status (2026-10-11): **steps 1 and 2 implemented**, step 3 (GOES-19) started
+Status (2026-10-11): **steps 1 and 2 implemented**, step 3 (GOES-19) nearly done
 (data facts, decision and plan in [Step 3](#step-3--goes-19-observed-clouds); done:
 quality combo, HDF5 reader, fixed-grid navigation + parallax correction, the
-GOES source in the weather service) — see
+GOES source in the weather service, the blend into the HRRR layers; left: the
+comparison script `goes_test.txt`) — see
 [Step 1 — as built](#step-1--as-built) and
 [Step 2 — as built](#step-2--height-aware-layers-motion-shadows-as-built)
 (low / middle / high layers at their own altitudes, wind drift, time blending,
@@ -443,6 +444,9 @@ component the PoC does not have), THREDDS (above).
 5. Blend into `CloudFields`: GOES cover corrects the HRRR cover per layer
    (`CCLC` bands), `ACHA` top height the top of the highest layer, `COD` the
    optical depth by day; HRRR alone at night and outside the GOES data.
+   **Done 2026-10-11** (as built below; "HRRR alone at night" applies to the
+   optical depth only — cover and tops are infrared products, valid day and
+   night).
 6. `goes_test.txt`: HRRR vs GOES shots through the quality combo.
 
 **HDF5 reader — as built** (2026-10-11; `src/Hdf5.*`, ~1300 lines, pure C++):
@@ -545,8 +549,8 @@ plus the `GeoRef` geoid; checked by the script command `goes` and
 
 - Active only at the quality level *Satellite observed* (added with this item:
   without a consumer every live session would download ~54 MB/h; until item 5
-  it looks like *Layers + wind* and adds the scan to the HUD line `goes` and the
-  panel's Sources). `WeatherService::update(active, satellite)`,
+  it looked like *Layers + wind* and added the scan to the HUD line `goes` and
+  the panel's Sources). `WeatherService::update(active, satellite)`,
   `goesScan(t)`; `busy()` / `activity()` include it, so `wait` covers listings,
   downloads and decoding.
 - **Choice of the scan**: the newest scan starting at or before the weather time,
@@ -597,6 +601,91 @@ plus the `GeoRef` geoid; checked by the script command `goes` and
   `COD` has a retrieval on 92 % of the box at night too (mean 2.3: the
   nighttime algorithm; the cloud mask says 95 % cloudy).
 
+**GOES blend — as built** (plan item 5, 2026-10-11; `src/CloudBlend.*`, pure C++,
+called by `WeatherService`): the scan corrects the HRRR datasets, the renderer
+is unchanged (`CloudFields` stays the only type it sees).
+
+- **Where in time**: each dataset of the HRRR bracket (valid at V) is corrected
+  with the scan of the weather time (start t_g ≤ t, ≤ 30 min old), the scan's
+  fields carried from t_g to V with that dataset's own layer winds
+  (semi-Lagrangian, as `CSBlendClouds`). The renderer then carries both corrected
+  datasets from V to t with the same winds, so at t the sky is the scan moved by
+  the wind for t − t_g. Valid times, winds and noise seeds stay HRRR's: the noise
+  phases do not jump, a new scan (every 10 min live) arrives as a newer version of
+  the same hours (wind glide + the 8 s cross-fade), and the hour roll-over is
+  unchanged. The scan's weight falls from 1 at |V − t_g| ≤ 90 min to 0 at 3 h
+  (bracket gaps up to 6 h exist in replays).
+- **Cover per layer** from the `CCLC` bands (valid on the whole box, also under
+  the high decks where `TCF` is missing): low = max(CF1, CF2) (0–3 km), middle =
+  max(CF3, CF4) (3–7.3 km), high = CF5 (> 7.3 km); max overlap inside a layer.
+  The bands are 10 km pixels: the 2 km mask `BCM` sharpens them (each layer cover ×
+  BCM / its 10 km mean, capped at 1; untouched where the mask is clear on 10 km
+  but the bands are not). `BCM` alone does not set the amount: it counts thin
+  cirrus.
+- **What the satellite sees**: a layer is visible from above by
+  v = Π(1 − cover of the layers above it) (as observed). Visible: the GOES cover
+  replaces HRRR's (also clear where HRRR has clouds); hidden under an observed
+  deck: max(HRRR, GOES) — HRRR keeps the clouds the satellite cannot see.
+- **Heights**: `ACHA` `HT` (parallax-corrected) is the top of the uppermost cloud.
+  The uppermost layer is the highest one whose (sharpened) band cover is ≥ 0.2,
+  and HT counts only where it fits that layer's bands (± 0.5 km): HT is
+  resampled from 10 km pixels, so between a high deck (~10 km) and low tops it
+  takes values in between — classified by its own height, those made rings of
+  false middle-layer tops along every deck edge (the first version did). That
+  layer's slab ends at HT: thickness = HT − base, the base lowered to keep 300 /
+  500 / 500 m where HT is below HRRR's base. Each top is weighted by the layer's
+  cover, filled into the other cells (push-pull) and smoothed like the HRRR
+  heights; the correction's weight = the smoothed weights (edge cells take the
+  deck's height). Bases elsewhere stay HRRR's (satellites do not see them).
+- **Optical depth**: `COD` is the column optical depth of the uppermost cloud →
+  that layer's in-cloud optical depth (capped at 60), **by day only**: the
+  files' own limits — day algorithm for solar zenith < 82°, good quality < 65°
+  — so full weight below 65°, none above 82° (the night algorithm saturates at
+  16; mean 2.3 at 00:01). Night and cells without a retrieval keep HRRR's.
+- **Outside the GOES data** (NaN cells) and beyond the time weight: HRRR alone.
+  Total cover = random overlap of the corrected layers (summary only); the
+  dataset summaries (cover, altitude near the box centre, layer seen from below)
+  are recomputed, `source` = "HRRR + GOES-19".
+- **Service**: once the HRRR datasets and the scan of t are loaded (nothing
+  else in flight), each bracket dataset with a time weight > 0 is corrected on a
+  worker (`CloudBlend::blend`, the two in parallel); `WeatherService::bracket`
+  returns the corrected ones at *Satellite observed*, `busy()` covers them (the
+  app takes complete pairs only), `modelBracket` keeps the HRRR datasets (the
+  `goes` command's comparison). Up to 4 corrections are kept, keyed by (dataset,
+  scan), so switching the level back and forth reuses them and the hour
+  roll-over keeps the same object. Each one is logged: the cover per layer
+  before → after, the share observed from above, the tops set, COD's share and
+  the daylight, the layer seen from below, the time. HUD `goes` line: *blended
+  into HRRR*; panel Sources: *Blended into the HRRR hours shown*. The
+  `CloudFields` summary and the layer clamps moved out of the HRRR decoder
+  (`CloudFields::summarize`, `constrainLayers`) for it, unchanged (the
+  `clouds_test` replay views are pixel-identical to the previous run where no
+  animated water is in view).
+- **Developer tool**: script command `cloudfields` — PNGs of the shown datasets
+  per layer (cover, base, top, optical depth; the `goes` images' ranges), so the
+  HRRR and corrected fields compare cell by cell with the scan's own images.
+- Cost: ~110–120 ms per dataset (Release, default box; the two datasets in
+  parallel), Debug ~2.5 s.
+- Checks (`cloudfields` + `goes` images, shots from 30 / 700 km and the
+  harbour): 2026-10-11 00:05 (night, the high deck of 00:01): high cover 54 →
+  82 % (= the CF5 band at 00:00; the 01:00 copy is the same deck carried 120 km
+  east by the 34 m/s jet, with HRRR's values in the upwind strip whose air came
+  from outside the box: high observed on 88 % instead of 100 %), middle 33 → 38 %,
+  low 12 → 15 % (HRRR's clouds kept under the deck: observed from above 11 / 18
+  / 100 %), the high slab's top at the observed ~10 km instead of HRRR's
+  estimated ~14 km (tops set on 0 / 4 / 78 %), no optical depth from COD
+  (night). 2026-10-10 17:05 (day, scan 17:01): high 35 → 67 %, middle 27 → 34 %,
+  low 6 → 15 %, COD on 80 % (daylight 100 %): the thick system in the south-west
+  gets τ 20–40 instead of the high-layer heuristic 1 — the observed deck covers
+  New York where HRRR has a gap. Scrubbing to 17:20 takes the 17:16 scan and
+  corrects both hours again; the Boston box gets its own corrections, New York's
+  come back from the cache; live used a 7 min old scan.
+- Known limits: under an observed deck the lower layers are HRRR's (only the
+  deck's own vertical extent from the CCLC base algorithm adds to them); COD is
+  the column's optical depth but goes to the uppermost layer only (multi-layer
+  columns get thicker); the 10 km bands make the cover observed, not sharper —
+  only the 2 km mask sharpens edges; `TCF` and the `DQF` flags are not used.
+
 **UI — cloud quality levels** (requested 2026-10-11): step 3 replaces the
 *Single layer (step-1 look)* checkbox with a combo box of cloud quality levels
 with meaningful names, one per step, each adding to the previous ones — e.g.
@@ -616,8 +705,7 @@ positions. `--cloud-level shell|layers`, script `cloudlevel shell|layers`,
 persisted `weather.cloud_level` (the old `weather.cloud_single` is read once and
 not written again); every change is logged with its `--cloud-level`. The next
 level, `satellite` (*Satellite observed*), arrived with plan item 4: it loads
-the GOES scans (HUD, Sources) and looks like *Layers + wind* until the blend
-(plan item 5).
+the GOES scans (HUD, Sources); since plan item 5 they correct the HRRR layers.
 
 ## Step 4 — Procedural volumetric clouds
 

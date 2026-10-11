@@ -614,7 +614,7 @@ void App::panelSources() {
     ImGui::TextDisabled(_showClouds ? "No dataset loaded yet" : "Clouds hidden: nothing is requested");
   }
 
-  // Step 3 in progress: the GOES-19 scan of the weather time.
+  // Step 3: the GOES-19 scan of the weather time, blended into the HRRR datasets.
   ImGui::Spacing();
   ImGui::TextUnformatted("Satellite: GOES-19 ABI");
   tooltip("NOAA's geostationary GOES-East over 75 W: Level-2 cloud products of the CONUS sector every 5 min from "
@@ -634,10 +634,17 @@ void App::panelSources() {
                   static_cast<long long>((t - s.start) / 60));
       tooltip("The newest scan starting at or before the weather time (at most 30 min earlier) with all four "
               "products; live, the listing is read again every 10 min");
-      ImGui::TextDisabled("Cloud tops on %.0f %% (mean %.1f km), mask %.0f %% cloudy, optical depth %.1f; not "
-                          "blended into the clouds yet",
+      ImGui::TextDisabled("Cloud tops on %.0f %% (mean %.1f km), mask %.0f %% cloudy, optical depth %.1f",
                           s.cloudTopFraction * 100.0, s.meanCloudTop / 1000.0, s.cloudyFraction * 100.0,
                           s.meanOpticalDepth);
+      const bool blended = (_cloudA.fields && _cloudA.fields->observedTime == s.start) ||
+                           (_cloudB.fields && _cloudB.fields->observedTime == s.start);
+      ImGui::TextDisabled(blended ? "Blended into the HRRR hours shown" : "Not blended into the clouds yet");
+      tooltip("Each HRRR dataset of the time blend is corrected by this scan, carried to its valid time by the layer "
+              "winds: per layer the observed cover (CCLC height bands, sharpened by the 2 km cloud mask) where the "
+              "satellite sees the layer from above, the cloud-top height as the top of the uppermost layer, the "
+              "optical depth by day (solar zenith < 82 deg). Cloud bases, winds and the clouds hidden under an "
+              "observed deck stay HRRR's");
     } else {
       ImGui::TextDisabled("No scan loaded for this time");
     }

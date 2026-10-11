@@ -62,15 +62,25 @@ struct CloudFields {
   // layers 3 + 4 per km of thickness, ice 1, mixed by the layer covers).
   std::vector<float> singleOpticalDepth;
 
-  std::string source;           // e.g. "HRRR"
+  std::string source;           // e.g. "HRRR", "HRRR + GOES-19"
   int64_t cycle = 0;            // model run / observation time (unix seconds, UTC)
   int forecastHours = 0;
   int64_t validTime = 0;        // unix seconds, UTC
   bool hasWind = false;         // layer winds from the source (else 0: shapes do not drift)
   bool hasCondensate = false;   // optical depths from cloud water / ice paths (else a thickness heuristic)
+  // Step 3: the GOES-19 scan blended into the model fields (CloudBlend::blend); 0 = the model alone.
+  int64_t observedTime = 0;     // scan start (unix seconds, UTC)
+  double observedWeight = 0.0;  // the scan's time weight at validTime
 
   // Summary (computed by the source after resampling).
   double meanCover = 0.0;         // domain mean, 0..1
   std::string layerName = "none"; // dominant layer seen from below near New York: low / middle / high
   double layerAltitude = 3000.0;  // m MSL: its altitude there
+
+  // Keeps every cell's layer bases apart and inside their NCEP pressure bands,
+  // thickness 100 m .. 6 km (the sources call it after setting the heights).
+  void constrainLayers();
+  // The summary values above and each layer's meanCover / altitudeNearPoi from
+  // the fields (the sources call it last).
+  void summarize();
 };

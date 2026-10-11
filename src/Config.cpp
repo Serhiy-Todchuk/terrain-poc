@@ -35,9 +35,10 @@ constexpr CloudLevelInfo kCloudLevels[kCloudLevelCount] = {
      "Step 2: the HRRR low / middle / high layers as slabs at their own altitudes and thickness per cell, drifting "
      "with each layer's wind field, blended between the hours"},
     {"satellite", "Satellite observed",
-     "Step 3 (in progress): + the GOES-19 scan of the weather time (cloud tops, cover layers, cloud mask, optical "
-     "depth; parallax-corrected, ~9 MB per scan, a new one every 10 min live). Loaded and shown in the HUD / "
-     "Sources; the clouds still look like Layers + wind until the scans are blended in"},
+     "Step 3: + the GOES-19 scan of the weather time (cloud tops, cover layers, cloud mask, optical depth; "
+     "parallax-corrected, ~9 MB per scan, a new one every 10 min live) blended into the HRRR layers: the observed "
+     "cover where the satellite sees a layer, the cloud tops, the optical depth by day. Bases, winds and clouds "
+     "under an observed deck stay HRRR's"},
 };
 
 } // namespace
@@ -116,8 +117,9 @@ Data / rendering:
                                shell = step 1, one thin static shell (HRRR total cover at the
                                altitude of the layer mostly seen from below); layers = step 2,
                                the low / middle / high slabs drifting with the wind; satellite =
-                               step 3 in progress, + the GOES-19 scan of the weather time
-                               (loaded, ~9 MB per scan; not blended into the clouds yet)
+                               step 3, + the GOES-19 scan of the weather time blended into the
+                               layers (observed cover, cloud tops, optical depth by day; ~9 MB
+                               per scan)
   --cloud-transparency PCT     the drawn clouds' transparency, 0..100 % (default 0: as the
                                weather makes them; their shadows keep their strength)
   --weather-center lon,lat|default

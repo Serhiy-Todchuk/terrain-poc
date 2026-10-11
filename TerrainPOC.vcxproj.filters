@@ -46,6 +46,8 @@
     <ClCompile Include="src\Hdf5.cpp"><Filter>Data</Filter></ClCompile>
     <ClCompile Include="src\GoesGrid.cpp"><Filter>Data</Filter></ClCompile>
     <ClCompile Include="src\GoesSource.cpp"><Filter>Data</Filter></ClCompile>
+    <ClCompile Include="src\CloudBlend.cpp"><Filter>Data</Filter></ClCompile>
+    <ClCompile Include="src\CloudFields.cpp"><Filter>Data</Filter></ClCompile>
     <ClCompile Include="src\GridFill.cpp"><Filter>Data</Filter></ClCompile>
     <ClCompile Include="src\NetcdfInspect.cpp"><Filter>Data</Filter></ClCompile>
     <ClCompile Include="src\WeatherService.cpp"><Filter>Data</Filter></ClCompile>
@@ -85,6 +87,7 @@
     <ClInclude Include="src\NetcdfInspect.h"><Filter>Data</Filter></ClInclude>
     <ClInclude Include="src\WeatherService.h"><Filter>Data</Filter></ClInclude>
     <ClInclude Include="src\CloudFields.h"><Filter>Data</Filter></ClInclude>
+    <ClInclude Include="src\CloudBlend.h"><Filter>Data</Filter></ClInclude>
     <ClInclude Include="src\Camera.h"><Filter>Rendering</Filter></ClInclude>
     <ClInclude Include="src\Renderer.h"><Filter>Rendering</Filter></ClInclude>
     <ClInclude Include="src\RendererResources.h"><Filter>Rendering</Filter></ClInclude>

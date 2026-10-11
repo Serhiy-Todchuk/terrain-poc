@@ -45,3 +45,11 @@ void inspectGoesScan(const std::shared_ptr<HttpAssetAccessor>& accessor, const C
 // display ranges, so they equal its *_parallax images of the same scan).
 void writeGoesScanImages(const CesiumAsync::AsyncSystem& asyncSystem, std::shared_ptr<const GoesScan> scan,
                          std::filesystem::path imageDir);
+
+// Script command `cloudfields`: a dataset the renderer shows as PNGs in the same
+// style, per layer (fields_<valid>_<hrrr|goes<scan>>_<low|mid|high>_<variable>.png):
+// cover 0..1, base and top (base + thickness) 0..15 km like HT, in-cloud
+// optical depth 0..40 like COD - the HRRR dataset and its GOES-corrected
+// version side by side (CloudBlend).
+void writeCloudFieldImages(const CesiumAsync::AsyncSystem& asyncSystem, std::shared_ptr<const CloudFields> fields,
+                           std::filesystem::path imageDir);

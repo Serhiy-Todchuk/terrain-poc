@@ -25,7 +25,7 @@ Sunset Park, Brooklyn).
 | Satellite imagery | Esri World Imagery (default) or USGS NAIP/HRO (`--imagery usgs`) | 0.3 m / ~2 m | — |
 | Buildings | OpenStreetMap via OpenFreeMap vector tiles (OpenMapTiles `render_height`) | footprints | on 3DEP ground |
 | Clouds | NOAA HRRR (hourly runs): cloud cover total / low / middle / high, cloud base / top, winds at 850 / 500 / 250 hPa, cloud water / ice; NOMADS grib-filter subset around NYC | 3 km | m above MSL |
-| Clouds observed (in progress) | NOAA GOES-19 ABI L2, CONUS every 5 min (`noaa-goes19` open-data bucket): cloud-top height, cloud cover layers, cloud mask, cloud optical depth | 10 / 2 km | m above MSL |
+| Clouds observed | NOAA GOES-19 ABI L2, CONUS every 5 min (`noaa-goes19` open-data bucket): cloud-top height, cloud cover layers, cloud mask, cloud optical depth | 10 / 2 km | m above MSL |
 
 Vertical datums are unified to WGS84 ellipsoidal heights (Cesium Native's
 frame): `h = H_NAVD88 + N_GEOID18`, `H_NAVD88 = d_MLLW − (NAVD88 − MLLW)`.
@@ -97,15 +97,18 @@ conversion. The sea surface is drawn at NAVD88 0 m (≈ local MSL, no tides).
   key `8` = the next level, `--cloud-level`): one level per roadmap step, all
   kept for comparison — *Simple shell* (step 1: one thin static shell with the
   HRRR total cover at the altitude of the layer mostly seen from below),
-  *Layers + wind* (step 2, the default) and *Satellite observed* (step 3, in
-  progress: the GOES-19 scan of the weather time is loaded — the newest at or
-  before it, every 10 min live, ~9 MB, parallax-corrected onto the weather box —
-  and shown in the HUD / Sources, not yet blended into the clouds). **Cloud shadows**: a shadow map of
+  *Layers + wind* (step 2, the default) and *Satellite observed* (step 3: the
+  GOES-19 scan of the weather time — the newest at or before it, every 10 min
+  live, ~9 MB, parallax-corrected onto the weather box — corrects both HRRR
+  hours of the time blend, carried to each hour by its layer winds: the observed
+  cover per layer where the satellite sees the layer from above, the cloud-top
+  height as the top of the uppermost layer, the optical depth by day; cloud
+  bases, winds and clouds hidden under an observed deck stay HRRR's). **Cloud shadows**: a shadow map of
   the sun's transmission through all layers over the weather domain, updated
   when the clouds or the sun change, darkens terrain, buildings, vessels, water
   and seabed. **Sun**: optionally at the weather time (solar ephemeris), with a
   time-of-day light: sky colours, sun colour and light levels from sunrise to
-  night. Plan for the next steps (GOES-19, volumetric, lighting):
+  night. Roadmap and the next steps (volumetric clouds, lighting):
   [`docs/weather_roadmap.md`](docs/weather_roadmap.md).
 * **`HttpAssetAccessor`** — WinHTTP `IAssetAccessor` with per-host concurrency
   limits, retries/backoff, full request/error logging and an on-disk response
@@ -164,7 +167,7 @@ syntax, the coordinates and NAVD88 elevation of the point under the cursor,
 tiles / load queues, the weather time (UTC and New York time, live / replay,
 sun elevation and azimuth), the HRRR datasets of the time blend, cover /
 altitude / wind per cloud layer, at *Satellite observed* the GOES-19 scan (its
-time, cloud tops, mask, optical depth), HTTP, GPU and process memory, log
+time, cloud tops, mask, optical depth, whether the shown hours carry it), HTTP, GPU and process memory, log
 counts, data credits.
 
 The **settings panel** (right, Dear ImGui) has two tabs. **View**: every
@@ -238,6 +241,7 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   | `click x y`, `scroll x y notches`, `type text` / `type <enter>` | real window messages (panel first, then the scene) |
   | `netcdf url\|path [variable …]` | log a NetCDF-4 / HDF5 file (variables, decoded statistics) and save PNGs of the named 2D variables (developer tool for the GOES-19 data) |
   | `goes url\|path …` | the GOES-19 L2 files of one scan on the weather box: navigation checks, the main variable of each product resampled with and without the parallax correction (PNGs with a graticule and coastal landmarks), compared with the HRRR hour loaded for the weather time (developer tool); without arguments: PNGs of the scan the weather service loaded for the weather time (cloud tops, cover, the five CCLC height bands, mask, optical depth) |
+  | `cloudfields` | PNGs of the datasets the clouds show, per layer cover / base / top / optical depth — HRRR at *Layers + wind*, corrected by the GOES-19 scan at *Satellite observed* (developer tool) |
   | `size WxH`, `sleep s`, `stats`, `log text`, `quit` | misc |
 
   Included: `scripts\shots_poi.txt` (POI views incl. 1 m contours on land and
@@ -311,10 +315,13 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   NOMADS keeps ~2 days of HRRR (+ forecasts); older hours replay only from the
   disk cache. The time-of-day light is an exposure model (no moon, no city
   lights).
-* GOES-19 (step 3, in progress): the scans are loaded and shown in the HUD /
-  panel but not blended into the clouds yet. Whole files (~9 MB per scan, every
-  10 min live: ~54 MB/h); scans of the running hour bypass the disk cache, and
-  a finished hour replays offline only after it was viewed online once it ended.
+* GOES-19 (step 3): the satellite sees cloud tops only — clouds under an
+  observed deck, cloud bases and winds stay HRRR's; the cover per layer comes
+  from 10 km height bands (sharpened by the 2 km mask); the optical depth of the
+  uppermost cloud is the whole column's and is used by day only. Whole files
+  (~9 MB per scan, every 10 min live: ~54 MB/h); scans of the running hour
+  bypass the disk cache, and a finished hour replays offline only after it was
+  viewed online once it ended.
 
 ## Layout
 
