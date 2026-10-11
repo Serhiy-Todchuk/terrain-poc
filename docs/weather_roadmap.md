@@ -1,6 +1,7 @@
 # Live Weather / Clouds — Roadmap and Plan
 
-Status (2026-10-11): **steps 1 and 2 implemented** — see
+Status (2026-10-11): **steps 1 and 2 implemented**, step 3 (GOES-19) started
+(data facts, decision and plan in [Step 3](#step-3--goes-19-observed-clouds)) — see
 [Step 1 — as built](#step-1--as-built) and
 [Step 2 — as built](#step-2--height-aware-layers-motion-shadows-as-built)
 (low / middle / high layers at their own altitudes, wind drift, time blending,
@@ -366,20 +367,76 @@ quality), cloud top height (ACHA), derived motion winds (DMW). GOES drives the *
 (mask, optical depth); HRRR keeps the vertical structure (base, layers) that
 satellites cannot see from above. Blend both into the same `CloudFields`.
 
-Corrections / risks found while planning step 1:
+**Data facts (checked 2026-10-11)**
 
-- Distribution is the NOAA Open Data bucket `s3://noaa-goes19` as **NetCDF-4
-  (HDF5)** files covering the whole sector — no spatial subsetting, several MB
-  each. The app has no HDF5 reader (Cesium's dependencies do not include one):
-  options are adding HDF5/NetCDF via vcpkg (heavy, and a WASM concern), a small
-  server-side preprocessor/proxy that cuts the NYC box (also solves CORS), or a
-  THREDDS NetCDF Subset Service if one serves these products.
-- Pixels are on the geostationary fixed grid (scan angles): resampling needs the
+- Distribution: the NOAA Open Data bucket `noaa-goes19`
+  (`https://noaa-goes19.s3.amazonaws.com/`, also Google / Azure). Keys are
+  `ABI-L2-<product>/<year>/<day of year>/<hour>/OR_ABI-L2-<product>-M6_G19_s<start>_e<end>_c<created>.nc`
+  (times `YYYYDDDHHMMSSt`). Listing: `?list-type=2&prefix=ABI-L2-ACHAC/2026/284/00/`
+  (XML, `<Key>` / `<Size>`). One file per 5-min CONUS scan, published ≈ 2–5 min
+  after the scan ends, kept forever (replays need no disk cache, unlike NOMADS).
+  The whole CONUS sector, no spatial subsetting:
+
+  | Product | Variables | Grid (CONUS) | One file |
+  |---|---|---|---|
+  | `ACMC` clear-sky mask | `BCM` (0/1), `ACM` (4 levels), `Cloud_Probabilities`, `DQF` | 2500 × 1500, 2 km | 4.5 MB |
+  | `CODC` cloud optical depth (640 nm) | `COD`, `DQF` | 2500 × 1500, 2 km | 3.6 MB |
+  | `ACHAC` cloud top height | `HT`, `DQF` | 500 × 300, 10 km | 0.33 MB |
+  | `CCLC` cloud cover layers | `TCF` (total) + `CF1`…`CF5`: cover in altitude bands (ft above sea level) 0–5000, 5000–10 000, 10 000–18 000, 18 000–24 000, > 24 000; `CL` (layer flag), `DQF` | 500 × 300, 10 km | 0.42 MB |
+  | `DMWC` derived motion winds | wind vectors at tracked features | points | 0.17 MB |
+
+  `CCLC` uses heights, not pressures. Its bands map onto the HRRR layers roughly
+  (low < 3.8 km ≈ CF1 + CF2 + the lower part of CF3; middle ≈ the rest of CF3 + CF4;
+  high ≈ CF5). The 10 km products are coarser than HRRR's 3 km: they make the
+  cloud positions **observed instead of forecast**, not sharper. Sharp shapes need
+  the 2 km mask / COD.
+- **File format**: NetCDF-4 = HDF5, written with the newer HDF5 structures
+  (superblock version 2, version-2 object headers, "dense" link / attribute
+  storage in a fractal heap indexed by v2 B-trees — the root group of `ACHAC` has
+  36 links), chunked and deflate-compressed variables, packed integers with
+  `scale_factor` / `add_offset` / `_FillValue` / `_Unsigned`.
+- **No usable subsetting service**: Unidata THREDDS (`thredds.ucar.edu`,
+  *GOES East Products*: CloudMask, CloudOpticalDepth, CloudTopHeight,
+  CloudCoverLayers, DerivedMotionWinds, …; CONUS / full disk / mesoscale, 13
+  days) serves these files with NCSS and OPeNDAP, but both fail on them: NCSS
+  NetCDF-3 output rejects the unsigned types ("unknown DataType == ubyte"),
+  NetCDF-4 output fails with an HTTP 500 IOException, OPeNDAP answers 500
+  ("NcDDS Variable data type = long"). Its `dataset.xml` (variables, attributes)
+  works and helps when checking a decoder.
+- **WASM**: the bucket sends no CORS headers (checked with an `Origin` header) —
+  like NOMADS, a browser build needs a same-origin proxy.
+- **Deflate** is already linked: Cesium's dependencies include zlib-ng
+  (`zlibstatic-ng.lib`).
+- Pixels are on the geostationary fixed grid (scan angles x / y in radians,
+  projection in the `goes_imager_projection` variable): resampling needs the
   GOES-R navigation formulas (simple, published in the Product User Guide) and a
   parallax correction for cloud height (the satellite sees cloud tops displaced
   away from nadir by ~height·tan(view zenith), roughly 1× the cloud height at NYC).
 - Refresh GOES every 5–10 min, HRRR hourly; at night fall back to HRRR cover
-  (no COD).
+  (COD comes from reflected sunlight).
+
+**Decision (2026-10-11): our own minimal HDF5 reader** (`src/Hdf5.*`, pure C++
+like `Grib2.*`, zlib-ng for deflate): only the structures these files use;
+anything else is rejected with an error ("extend it, don't guess"). No new
+dependency, WASM-friendly. It reads chunked variables chunk by chunk, so a later
+version can fetch only the chunks over the weather box with HTTP range requests
+(the 2 km files would then cost a fraction of their 4.5 MB). Rejected: HDF5 /
+netcdf-c through vcpkg (heavy, a WASM problem), a preprocessing proxy (a server
+component the PoC does not have), THREDDS (above).
+
+**Plan**:
+
+1. Cloud quality combo (UI below) — the frame for comparing HRRR and GOES.
+2. `Hdf5` reader, checked on cached `ACHAC` / `CCLC` files (structure, attributes,
+   decoded values against THREDDS `dataset.xml` and physical ranges).
+3. GOES fixed-grid navigation (lon / lat ↔ scan angles) and the parallax
+   correction from the cloud-top height.
+4. `GoesSource` in `WeatherService`: bucket listing → the newest file at or before
+   the weather time per product, every 10 min live; replay from the same listing.
+5. Blend into `CloudFields`: GOES cover corrects the HRRR cover per layer
+   (`CCLC` bands), `ACHA` top height the top of the highest layer, `COD` the
+   optical depth by day; HRRR alone at night and outside the GOES data.
+6. `goes_test.txt`: HRRR vs GOES shots through the quality combo.
 
 **UI — cloud quality levels** (requested 2026-10-11): step 3 replaces the
 *Single layer (step-1 look)* checkbox with a combo box of cloud quality levels
