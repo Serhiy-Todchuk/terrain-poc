@@ -1,0 +1,179 @@
+# Volumetric clouds (docs/weather_roadmap.md step 4, the cloud quality level
+# "Volumetric"): the HRRR + GOES-19 layers ray marched as volumes with drifting
+# 3D noise at half resolution, temporally filtered, composited over the scene
+# with the per-sample depth test. The day case 2026-10-10 17:05 (cumulus under a
+# high deck, GOES-19 scan 17:01) from the water, below, inside and above the low
+# layer, 30 km (each layer alone, drift, fog, transparency, MSAA off, a smaller
+# window), 700 km; the sun applied at sunset and at night; a flight (no wait:
+# the temporal filter while moving); key 8 wraps around to Simple shell; an A/B
+# of the frame time.
+# Needs the network once (the GOES-19 scan of 22:11 for the sunset, ~9 MB; the
+# other hours and scans are those of clouds_test / goes_test); then it replays
+# with --offline.
+# Run: TerrainPOC.exe --script ..\..\scripts\volumetric_test.txt --shot-dir ..\..\shots\volumetric --offline --no-vsync
+# Expected log: "Cloud noise: 128^3 shape + 32^3 detail RGBA8 3D textures
+# (9.3 MB with mips)" at start; "Settings panel: cloud quality Volumetric
+# (--cloud-level volumetric)" after the combo click; the HUD line "layers ... |
+# volumetric"; 0 errors, 0 warnings. A/B (RTX 3070 Laptop, 1600x900, 4x MSAA,
+# --no-vsync, see the "stats" lines after each "A/B" note): Volumetric costs
+# ~1.3-1.6 ms (from the water) and ~0.4-0.8 ms (30 km) more than Satellite
+# observed (runs differ with the GPU clocks).
+# Images: v* = 17:05 volumetric, s* = the same views at Satellite observed
+# (slabs); the cover per layer agrees from 700 km, the volumes add billows,
+# eroded edges and depth.
+
+weather 202610101705
+set panel off
+camera -74.0400,40.6600,18,15,10
+cloudlevel satellite
+wait
+shot s1_water_slabs
+# The quality combo's fourth item (real clicks; Time & weather tab)
+set panel on
+tab weather
+sleep 0.3
+click 1450 262
+sleep 0.3
+shot v0_quality_combo_open
+click 1400 348       # Volumetric
+set panel off
+wait
+shot v1_water
+
+# Below, inside and above the low layer (cumulus, base ~2 km)
+camera -74.0075,40.6600,30,330,55
+wait
+shot v2_looking_up
+camera -74.0300,40.5800,2200,20,-5
+wait
+shot v3_inside_low_layer
+camera -74.0300,40.5800,3000,20,-8
+wait
+shot v4_above_low_layer
+cloudlevel satellite
+wait
+shot s4_above_low_layer
+cloudlevel volumetric
+
+# 30 km: all layers, then each alone
+lookat -74.0300,40.6500,0,0,-60,35000
+wait
+shot v5_30km
+cloudlevel satellite
+wait
+shot s5_30km
+cloudlevel volumetric
+set cloudmid off
+set cloudhigh off
+wait
+shot v6_30km_low
+set cloudlow off
+set cloudmid on
+wait
+shot v7_30km_mid
+set cloudmid off
+set cloudhigh on
+wait
+shot v8_30km_high
+set cloudlow on
+set cloudmid on
+# 15 minutes later (the 17:16 scan): the clouds drifted with the layer winds
+weather 202610101720
+wait
+shot v9_30km_15min_later
+weather 202610101705
+wait
+# Fog off, 60 % transparency, MSAA off, a 1280x720 window (new targets)
+set fog off
+wait
+shot v10_30km_no_fog
+set fog on
+cloudtransparency 60
+wait
+shot v11_30km_transparent_60
+cloudtransparency 0
+set msaa off
+wait
+shot v12_30km_msaa_off
+set msaa on
+size 1280x720
+wait
+shot v13_30km_1280x720
+size 1600x900
+wait
+
+# The whole box from 700 km (the cover agrees with the slabs)
+lookat -74.0,40.66,0,0,-89,700000
+wait
+shot v14_domain
+cloudlevel satellite
+wait
+shot s14_domain
+cloudlevel volumetric
+
+# The sun at the weather time: sunset (2026-10-10 22:15) and night (2026-10-11 00:05)
+set sun on
+weather 202610102215
+camera -74.0400,40.6600,18,250,8
+wait
+shot v15_sunset
+weather 202610110005
+camera -74.0150,40.6400,250,330,-12
+wait
+shot v16_night
+set sun off
+
+# A flight over the harbour, shot as it ends (no wait): the temporal filter while moving
+weather 202610101705
+lookat -74.0300,40.6500,0,0,-60,35000
+wait
+fly -73.95,40.60,25000,40,-50 4
+shot v17_after_flight
+wait
+shot v18_after_flight_settled
+
+# Key 8 from Volumetric wraps around to Simple shell
+key 8
+wait
+shot v19_key8_shell
+cloudlevel volumetric
+
+# A/B of the frame time (meaningful with --no-vsync): Satellite observed vs Volumetric
+camera -74.0400,40.6600,18,15,10
+wait
+log A/B from the water: satellite, volumetric, satellite, volumetric
+cloudlevel satellite
+wait
+sleep 2
+stats
+cloudlevel volumetric
+wait
+sleep 2
+stats
+cloudlevel satellite
+wait
+sleep 2
+stats
+cloudlevel volumetric
+wait
+sleep 2
+stats
+lookat -74.0300,40.6500,0,0,-60,35000
+wait
+log A/B 30 km: satellite, volumetric, satellite, volumetric
+cloudlevel satellite
+wait
+sleep 2
+stats
+cloudlevel volumetric
+wait
+sleep 2
+stats
+cloudlevel satellite
+wait
+sleep 2
+stats
+cloudlevel volumetric
+wait
+sleep 2
+stats

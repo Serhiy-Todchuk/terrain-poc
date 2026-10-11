@@ -284,13 +284,15 @@ float2 RayShellRoots(float b, float c)
 }
 
 // Height above the sphere (m) of the point t metres along the ray (b = dot(dir,
-// oc)), from the camera height: no cancellation.
+// oc)), from the camera height: (h - hc)(2R + hc + h) = q solved in the
+// cancellation-free form (exact from any altitude; a single fixed-point step
+// put the low layer ~2 km too high when seen from 700 km).
 float HeightAt(float t, float b)
 {
     float hc = gCloudOrigin.w;
-    float q = 2.0 * b * t + t * t;
-    float h = hc + q / (2.0 * (gCloudCamera.w + hc));
-    return hc + q / (2.0 * gCloudCamera.w + hc + h);
+    float rc = gCloudCamera.w + hc;  // |oc|
+    float q = 2.0 * b * t + t * t;   // |oc + t dir|^2 - |oc|^2
+    return hc + q / (rc + sqrt(max(rc * rc + q, 0.0)));
 }
 
 // Distance from a point (height hP above the sphere, bb = dot(point - centre,
@@ -311,14 +313,17 @@ struct CloudAmount
 {
     float amount;  // 0..1
     float density; // optical depth factor (thicker / thinner patches)
+    float removed; // share of the noise the footprint cannot resolve (amount -> cover)
 };
 
-CloudAmount LayerAmount(int layer, float cover, float2 uv, float2 km, float fpKm, int octaves, float shift)
+// drift: gCloudDrift at the point; minWidth: the narrowest threshold ramp (in u;
+// the volumes take a wider one: their 3D noise sculpts the soft edge).
+CloudAmount LayerAmountAt(int layer, float cover, float2 km, float4 drift, float fpKm, int octaves, float shift,
+                          float minWidth)
 {
     float lambda = gCloudMisc.w > 0.5 ? kSingleWavelength : kLayerWavelength[layer];
     float fp = fpKm / lambda;
     float wb = gCloudMisc.x;
-    float4 drift = gCloudDrift.SampleLevel(gLinearClamp, float3(uv, layer), 0.0);
     float removed = 0.0, na = 0.0, nb = 0.0;
     if (wb < 0.999)
         na = CloudNoise((km + gCloudNoise[layer].xy + drift.xy) / lambda, fp, octaves, removed);
@@ -329,14 +334,21 @@ CloudAmount LayerAmount(int layer, float cover, float2 uv, float2 km, float fpKm
     // Soft threshold: a ramp of width s in u, wider as the footprint grows (cloud
     // edges never get sharper than a pixel), centred so that the cloudy share of
     // an area stays the cover also where the ramp crosses 0 or 1.
-    float s = clamp(0.12 + 6.0 * fp, 0.12, 1.0);
+    float s = clamp(minWidth + 6.0 * fp, minWidth, 1.0);
     float centre = cover < 0.5 * s ? sqrt(2.0 * s * cover) - 0.5 * s
                  : (cover > 1.0 - 0.5 * s ? 1.0 + 0.5 * s - sqrt(2.0 * s * (1.0 - cover)) : cover);
     centre += shift;
     CloudAmount r;
     r.amount = lerp(saturate((centre - u) / s + 0.5), cover, removed);
     r.density = lerp(0.4 + 1.2 * (1.0 - u), 1.0, removed);
+    r.removed = removed;
     return r;
+}
+
+CloudAmount LayerAmount(int layer, float cover, float2 uv, float2 km, float fpKm, int octaves, float shift)
+{
+    float4 drift = gCloudDrift.SampleLevel(gLinearClamp, float3(uv, layer), 0.0);
+    return LayerAmountAt(layer, cover, km, drift, fpKm, octaves, shift, 0.12);
 }
 
 // Share of the direct sun that reaches a point through all layers: the sun
@@ -819,8 +831,8 @@ float4 PSCapture(CaptureOut i) : SV_Target
 // at the base, narrower at the top). Lit as a non-absorbing two-stream layer,
 // shadowed by the layers above (mean cover), hazed by aerial perspective;
 // composited front to back. SV_Depth = the nearest layer, so terrain, buildings
-// and vessels in front occlude it per MSAA sample. The step to volumetric clouds
-// replaces the slab samples by a ray march with 3D detail.
+// and vessels in front occlude it per MSAA sample. The level "Volumetric" (step
+// 4) ray marches the same slabs instead (below).
 
 // Base and top of a layer (m above the sphere) from a coarse mip.
 float2 LayerBaseTop(int layer, float2 uv)
@@ -1047,6 +1059,426 @@ float4 PSClouds(SkyOut i, out float depthOut : SV_Depth) : SV_Target
         discard;
     // Transparency (panel): the clouds blend over the scene by the opacity only.
     return float4(color / max(alphaOut, 1e-4), alphaOut * gCloudView.x);
+}
+
+// ---------------------------------------------------------------------------
+// Volumetric clouds (docs/weather_roadmap.md step 4, the quality level
+// "Volumetric"): the slabs of PSClouds filled with a density and ray marched.
+// Macro structure from the weather fields (cover, base, thickness, optical
+// depth per layer and cell); the columns from the drifting 2D coverage noise
+// of the slab look (LayerAmountAt with a wider ramp: the same places as the
+// cloud shadows); the 3D detail from two tiling noise textures made on the GPU
+// at start (CSNoiseShape, CSNoiseDetail): the cloud surface lies where the
+// coverage meets a threshold shaped by the billows, carved near it by finer
+// Worley noise (wisps at the base, cauliflower above); both drift in the two
+// phases of the 2D noise. The extinction keeps a full column's optical depth at
+// the layer's (HRRR / GOES), cores stay solid. Where a pixel cannot resolve the
+// noise (far away) the column becomes a veil with the area-mean transmittance.
+// Light (until step 5 marches towards the sun): the two-stream model of the
+// slabs per sample - the macro optical depth up to the slab top along the sun,
+// a forward / back Henyey-Greenstein lobe for the direct part, the sky by
+// height in the slab - thinned near the eroded surface.
+// Passes: PSCloudMarch (half resolution, the ray through one of its 2x2 pixels
+// and the steps offset differently each frame, up to the farthest scene depth
+// of the 2x2 pixels) -> PSCloudTemporal (the history reprojected with the
+// cloud depth, variance clipping) -> PSCloudComposite (full resolution,
+// SV_Depth = the cloud front: the scene occludes it per MSAA sample, as
+// PSClouds).
+
+Texture3D<float4> gNoiseShape         : register(t14); // 128^3 tiling: x billows (Perlin-Worley), yzw Worley fBm
+Texture3D<float4> gNoiseDetail        : register(t15); // 32^3 tiling: xyz Worley fBm (rising frequencies)
+Texture2D<float4> gVolumeColor        : register(t16); // march: premultiplied colour, opacity
+Texture2D<float>  gVolumeDepth        : register(t17); // march: distance to the first cloud matter (m, 0: none)
+Texture2D<float4> gVolumeHistory      : register(t18); // temporal result (read by the next frame and the composite)
+Texture2D<float>  gVolumeHistoryDepth : register(t19);
+SamplerState      gLinearWrap         : register(s1);
+
+cbuffer CloudVolumeConstants : register(b3)
+{
+    float4x4 gPrevViewProj; // (point - previous camera, ECEF axes) -> previous clip space
+    float4   gPrevDelta;    // xyz: camera - previous camera (ECEF axes, m), w: weight of this frame (1: no history)
+    float4   gVolumeSize;   // xy: half-resolution target size, zw: 1 / size
+    float4   gVolumeParams; // x: jitter phase of this frame (0..1), yz: sub-pixel ray offset (full-res pixels)
+};
+
+// Per layer (low / middle / high): size of the noise tiles (km), vertical
+// squash of the noise (high: flat sheets), erosion of the column edges by the
+// billows and by the detail.
+static const float kShapeTileKm[3] = { 3.0, 5.0, 9.0 };
+static const float kDetailTileKm[3] = { 0.8, 1.2, 2.0 };
+static const float kVolumeSquash[3] = { 1.0, 1.5, 4.0 };
+static const float kErosion[3] = { 0.6, 0.5, 0.6 };
+static const float kDetailErosion[3] = { 0.25, 0.2, 0.3 };
+static const float kProfileMean = 0.9; // mean of the vertical profile over a full column
+static const float3 kSunTint = float3(1.0, 0.97, 0.92);
+
+// ---- noise textures (compute, once at start) -------------------------------
+RWTexture3D<unorm float4> gNoiseOut : register(u4);
+
+float3 Hash3(int3 c, uint salt)
+{
+    uint h1 = PcgHash(uint(c.x) * 73856093u ^ PcgHash(uint(c.y) * 19349663u ^ PcgHash(uint(c.z) * 83492791u + salt)));
+    uint h2 = PcgHash(h1);
+    uint h3 = PcgHash(h2);
+    return float3(float(h1), float(h2), float(h3)) * (1.0 / 4294967295.0);
+}
+
+// Worley noise with `period` cells per unit, tiling: 1 at the feature points,
+// 0 a cell away (inverted F1: rounded bumps).
+float WorleyTile(float3 p, int period)
+{
+    float3 q = p * period;
+    int3 cell = int3(floor(q));
+    float3 f = q - float3(cell);
+    float d2 = 9.0;
+    [loop] for (int z = -1; z <= 1; ++z)
+    {
+        [loop] for (int y = -1; y <= 1; ++y)
+        {
+            [loop] for (int x = -1; x <= 1; ++x)
+            {
+                int3 o = int3(x, y, z);
+                float3 r = float3(o) + Hash3(int3(uint3(cell + o + period) % uint(period)), 17u) - f;
+                d2 = min(d2, dot(r, r));
+            }
+        }
+    }
+    return 1.0 - saturate(sqrt(d2));
+}
+
+float WorleyFbm(float3 p, int period)
+{
+    return WorleyTile(p, period) * 0.625 + WorleyTile(p, period * 2) * 0.25 + WorleyTile(p, period * 4) * 0.125;
+}
+
+float PerlinCorner(int3 c, int3 o, float3 f, int period)
+{
+    float3 g = Hash3(int3(uint3(c + o) % uint(period)), 5u) * 2.0 - 1.0;
+    return dot(g * rsqrt(max(dot(g, g), 1e-4)), f - float3(o));
+}
+
+// Gradient noise with `period` cells per unit, tiling, about [-1, 1].
+float PerlinTile(float3 p, int period)
+{
+    float3 q = p * period;
+    int3 c = int3(floor(q));
+    float3 f = q - float3(c);
+    float3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    float x00 = lerp(PerlinCorner(c, int3(0, 0, 0), f, period), PerlinCorner(c, int3(1, 0, 0), f, period), u.x);
+    float x10 = lerp(PerlinCorner(c, int3(0, 1, 0), f, period), PerlinCorner(c, int3(1, 1, 0), f, period), u.x);
+    float x01 = lerp(PerlinCorner(c, int3(0, 0, 1), f, period), PerlinCorner(c, int3(1, 0, 1), f, period), u.x);
+    float x11 = lerp(PerlinCorner(c, int3(0, 1, 1), f, period), PerlinCorner(c, int3(1, 1, 1), f, period), u.x);
+    return lerp(lerp(x00, x10, u.y), lerp(x01, x11, u.y), u.z);
+}
+
+// Shape noise: x = billows (Perlin fBm dilated by Worley fBm), y / z / w =
+// Worley fBm at 4 / 8 / 16 cells per tile.
+[numthreads(4, 4, 4)]
+void CSNoiseShape(uint3 id : SV_DispatchThreadID)
+{
+    uint w, h, d;
+    gNoiseOut.GetDimensions(w, h, d);
+    if (any(id >= uint3(w, h, d)))
+        return;
+    float3 p = (float3(id) + 0.5) / float3(w, h, d);
+    float perlin = (PerlinTile(p, 4) + 0.5 * PerlinTile(p, 8) + 0.25 * PerlinTile(p, 16)) / 1.75;
+    perlin = saturate(0.5 + perlin);
+    float worley = WorleyFbm(p, 4);
+    float billows = saturate((worley + perlin * (1.0 - worley) - 0.25) / 0.75);
+    gNoiseOut[id] = float4(billows, worley, WorleyFbm(p, 8), WorleyFbm(p, 16));
+}
+
+// Detail noise: Worley fBm at 2 / 4 / 8 cells per tile.
+[numthreads(4, 4, 4)]
+void CSNoiseDetail(uint3 id : SV_DispatchThreadID)
+{
+    uint w, h, d;
+    gNoiseOut.GetDimensions(w, h, d);
+    if (any(id >= uint3(w, h, d)))
+        return;
+    float3 p = (float3(id) + 0.5) / float3(w, h, d);
+    gNoiseOut[id] = float4(WorleyFbm(p, 2), WorleyFbm(p, 4), WorleyTile(p, 8) * 0.75 + WorleyTile(p, 16) * 0.25, 1.0);
+}
+
+// ---- march -----------------------------------------------------------------
+float LayerOn(int l)
+{
+    return l == 0 ? gCloudLayerOn.x : (l == 1 ? gCloudLayerOn.y : gCloudLayerOn.z);
+}
+
+// Ray direction (view space) through a position in full-resolution pixels.
+float3 ViewDirAt(float2 pixel)
+{
+    float2 ndc = float2(pixel.x * gScreen.z * 2.0 - 1.0, 1.0 - pixel.y * gScreen.w * 2.0);
+    return normalize(float3(ndc.x * gProjParams.x, ndc.y * gProjParams.y, -1.0));
+}
+
+// Interleaved gradient noise (Jimenez 2014): a per-pixel offset in [0, 1).
+float InterleavedGradient(float2 p)
+{
+    return frac(52.9829189 * frac(dot(p, float2(0.06711056, 0.00583715))));
+}
+
+// Henyey-Greenstein phase relative to isotropic scattering (1 = isotropic).
+float PhaseHG(float cosTheta, float g)
+{
+    return (1.0 - g * g) / pow(abs(1.0 + g * g - 2.0 * g * cosTheta), 1.5);
+}
+
+// The two noise phases of a layer blended like the 2D noise (variance kept
+// about the mid value): each phase drifts with its dataset's wind.
+float4 VolumeNoise(Texture3D<float4> tex, float3 qa, float3 qb, float mip)
+{
+    float wb = gCloudMisc.x;
+    float4 a = 0.5, b = 0.5;
+    if (wb < 0.999)
+        a = tex.SampleLevel(gLinearWrap, qa, mip);
+    if (wb > 0.001)
+        b = tex.SampleLevel(gLinearWrap, qb, mip);
+    return saturate(0.5 + ((a - 0.5) * (1.0 - wb) + (b - 0.5) * wb) * rsqrt((1.0 - wb) * (1.0 - wb) + wb * wb));
+}
+
+struct VolumeSample
+{
+    float sigma;  // extinction (1/m)
+    float z;      // height in the slab (0 base .. 1 top)
+    float amount; // the column's coverage (0..1)
+    float tau;    // in-cloud optical depth of the layer there
+    float inside; // how deep below the eroded cloud surface (0 at it .. 1)
+};
+
+// The density of layer l at a point (rel = point - camera, h = its height above
+// the sphere); fpKm = the size a sample stands for (the noise fades below it).
+VolumeSample SampleVolume(int l, float3 rel, float h, float fpKm)
+{
+    VolumeSample o;
+    o.sigma = 0.0;
+    o.z = 0.0;
+    o.amount = 0.0;
+    o.tau = 0.0;
+    o.inside = 0.0;
+    float2 lonLat;
+    float2 uv = CloudGridUv(gCloudCamera.xyz + rel, lonLat);
+    float4 field = gCloudField.SampleLevel(gLinearClamp, float3(uv, l), max(log2(fpKm / 2.5), 0.0));
+    float cover = saturate(field.x) * GridEdge(uv) * LayerOn(l);
+    float2 bt = LayerBaseTop(l, uv); // the slab TraceLayer found (coarse mip)
+    float thickness = bt.y - bt.x;
+    o.z = (h - bt.x) / thickness;
+    [branch] if (cover > 0.002 && o.z > 0.0 && o.z < 1.0)
+    {
+        float2 km = NoiseKm(lonLat);
+        float4 drift = gCloudDrift.SampleLevel(gLinearClamp, float3(uv, l), 0.0);
+        CloudAmount a = LayerAmountAt(l, cover, km, drift, fpKm, 4, kLayerShape[l] * (0.5 - o.z), 0.3);
+        o.amount = a.amount;
+        o.tau = field.z;
+        [branch] if (a.amount > 0.001)
+        {
+            float hKm = h * 0.001 * kVolumeSquash[l];
+            float2 pa = km + gCloudNoise[l].xy + drift.xy, pb = km + gCloudNoise[l].zw + drift.zw;
+            // The cloud surface: where the column's coverage meets a threshold
+            // shaped by the billows (displaced inwards by up to kErosion), then a
+            // short ramp to the full density - a core with coverage 1 stays solid.
+            // Unresolved billows (far away) fade out: the ramp widens back to the
+            // coverage itself.
+            float tile = kShapeTileKm[l];
+            float mip = clamp(log2(fpKm * 128.0 / tile), 0.0, 7.0);
+            float resolved = saturate(2.0 - mip / 3.0);
+            float4 sn = VolumeNoise(gNoiseShape, float3(pa, hKm) / tile, float3(pb, hKm) / tile, mip);
+            float shape = saturate(sn.x * 0.8 + (sn.y * 0.5 + sn.z * 0.3 + sn.w * 0.2) * 0.3 - 0.05);
+            float ramp = lerp(1.0, 0.15, resolved);
+            float v = a.amount - (1.0 - shape) * kErosion[l] * resolved;
+            [branch] if (v > 0.0 && v < ramp + kDetailErosion[l])
+            {
+                // Near the surface the detail carves it: wispy (inverted) towards
+                // the base, cauliflower above.
+                float tileD = kDetailTileKm[l];
+                float mipD = clamp(log2(fpKm * 32.0 / tileD), 0.0, 5.0);
+                float3 dn = VolumeNoise(gNoiseDetail, float3(pa, hKm) / tileD, float3(pb, hKm) / tileD, mipD).xyz;
+                float fine = dn.x * 0.625 + dn.y * 0.25 + dn.z * 0.125;
+                fine = lerp(1.0 - fine, fine, saturate(o.z * 5.0));
+                v -= (1.0 - fine) * kDetailErosion[l] * saturate(2.0 - mipD / 2.0);
+            }
+            float rho = saturate(v / ramp);
+            o.inside = saturate(v * 2.0);
+            float profile = smoothstep(0.0, 0.08, o.z) * (1.0 - smoothstep(0.92, 1.0, o.z));
+            // Where the noise is unresolved the column is a uniform veil of the
+            // cover: thin it so that it lets through the mean of clear and
+            // cloudy parts, 1 - cover (1 - exp(-tau)), not exp(-cover tau).
+            float tauColumn = max(field.z * a.density, 1e-3);
+            float veil = -log(max(1.0 - cover * (1.0 - exp(-tauColumn)), 1e-4)) / max(cover * tauColumn, 1e-4);
+            o.sigma = rho * profile * a.density * field.z / (thickness * kProfileMean) *
+                      lerp(1.0, saturate(veil), a.removed);
+        }
+    }
+    return o;
+}
+
+// Light a sample scatters towards the camera (per unit of its opacity): the
+// sun through the macro optical depth up to the slab top, direct with the
+// phase lobe + diffuse (two-stream), and the sky, more towards the top. Both
+// thinned near the cloud surface (s.inside: billows lit, crevices darker) - an
+// isotropic stand-in for the self-shadowing that step 5 marches towards the sun.
+float3 VolumeLight(VolumeSample s, float sunUp, float3 sunIrr, float3 skyIrr, float phase)
+{
+    float tauSun = s.tau * saturate(1.0 - s.z) * lerp(0.15, 1.0, s.inside) / max(sunUp, 0.08);
+    float direct = exp(-tauSun);
+    float diffuse = 1.0 / (1.0 + 0.11 * tauSun);
+    return sunIrr * (0.35 * direct * phase + 0.9 * diffuse) +
+           skyIrr * (0.35 + 0.65 * saturate(s.z)) * lerp(1.0, 0.7, s.inside);
+}
+
+struct VolumeOut
+{
+    float4 color : SV_Target0; // premultiplied colour, opacity
+    float  depth : SV_Target1; // distance to the first cloud matter (m), 0: none
+};
+
+VolumeOut PSCloudMarch(SkyOut i)
+{
+    int2 px = int2(i.pos.xy);
+    // Through one of its 2x2 full-resolution pixels (a different one each frame:
+    // the temporal filter averages them).
+    float3 dirView = ViewDirAt((float2(px) + 0.5) * 2.0 + gVolumeParams.yz);
+    float3 dir = mul(dirView, (float3x3)gViewRot);
+    float3 sunEcef = mul(gSunDirView.xyz, (float3x3)gViewRot);
+    float b = dot(dir, gCloudOrigin.xyz);
+    // The farthest scene depth of the 2x2 pixels (reversed Z: the smallest; 0 = sky).
+    float farDepth = 1.0;
+    int2 last = int2(gScreen.xy) - 1;
+    [unroll] for (int c = 0; c < 4; ++c)
+    {
+        int2 q = min(px * 2 + int2(c & 1, c >> 1), last);
+        [unroll] for (uint smp = 0; smp < MSAA_SAMPLES; ++smp)
+            farDepth = min(farDepth, LoadSceneDepth(q, smp));
+    }
+    float tMax = farDepth > 0.0 ? gProjParams.z / farDepth / max(-dirView.z, 1e-4) : 1e12;
+    float pixelAngle = 2.0 * gProjParams.y * gScreen.w; // one full-resolution pixel (rad): the noise LOD
+    float jitter = frac(InterleavedGradient(float2(px)) + gVolumeParams.x);
+    float cosSun = dot(dir, sunEcef);
+    float phase = 0.8 * PhaseHG(cosSun, 0.6) + 0.2 * PhaseHG(cosSun, -0.3);
+
+    float3 color = 0.0;
+    float transmittance = 1.0, front = 0.0, gap = 0.0;
+    // Front to back: a climbing ray meets the layers low -> high, a descending one high -> low.
+    [loop] for (int n = 0; n < 3; ++n)
+    {
+        int l = b >= 0.0 ? n : 2 - n;
+        LayerSpan span = TraceLayer(l, dir, b);
+        float t0 = max(span.t0, 0.0);
+        float t1 = min(min(span.t1, tMax), t0 + 40000.0);
+        [branch] if (span.t0 >= 0.0 && t1 > t0 && transmittance > 0.01)
+        {
+            // Per layer: the sun at the entry (dimmed by the layers above), the sky.
+            float3 relEntry = t0 * dir;
+            float sunUp = dot(normalize(gCloudOrigin.xyz + relEntry), sunEcef);
+            float hEntry = span.side > 0 ? span.hTop : (span.side < 0 ? span.hBase : gCloudOrigin.w);
+            float3 sun = kSunTint * SunColor(sunUp) * LayersAbove(l, relEntry, hEntry, sunEcef, sunUp);
+            float3 sunIrr = 0.9 * saturate(sunUp) * sun;
+            float3 skyIrr = 0.25 * kSunTint * SkyLight(sunUp) + gSkyZenith.rgb * 0.12;
+            // Steps: ~8 per slab thickness crossed (>= 25 m), 4..32 per layer (the
+            // jitter + temporal filter fill in between).
+            float len = t1 - t0;
+            float steps = clamp(ceil(len / max((span.hTop - span.hBase) / 8.0, 25.0)), 4.0, 32.0);
+            float dt = len / steps;
+            float tGap = 0.0;
+            [loop] for (float j = 0.0; j < steps; j += 1.0)
+            {
+                float t = t0 + (j + jitter) * dt;
+                float fpKm = max(t * pixelAngle * 0.001, 0.005);
+                VolumeSample s = SampleVolume(l, t * dir, HeightAt(t, b), fpKm);
+                [branch] if (s.sigma > 0.0)
+                {
+                    float ext = exp(-s.sigma * dt);
+                    float fog = (1.0 - exp(-t / gFogParams.x)) * gFogParams.y;
+                    float3 light = VolumeLight(s, sunUp, sunIrr, skyIrr, phase);
+                    color += transmittance * (1.0 - ext) * lerp(light, gHazeColor.rgb, fog);
+                    transmittance *= ext;
+                    front = front > 0.0 ? front : t;
+                    tGap = tGap > 0.0 ? tGap : t;
+                    if (transmittance < 0.01)
+                        break;
+                }
+            }
+            // The sky seen through gaps inside cloudy areas gets the aerial
+            // perspective of the clouds around it (as PSClouds).
+            [branch] if (tGap > 0.0)
+            {
+                float2 lonLat;
+                float2 uvMid = CloudGridUv(gCloudCamera.xyz + (0.5 * (t0 + t1)) * dir, lonLat);
+                float cover = saturate(gCloudField.SampleLevel(gLinearClamp, float3(uvMid, l), 2.0).x) * GridEdge(uvMid);
+                gap = max(gap, (1.0 - exp(-tGap / gFogParams.x)) * gFogParams.y * saturate(cover * 2.0));
+            }
+        }
+    }
+    VolumeOut o;
+    o.color = front > 0.0 ? float4(color + gHazeColor.rgb * (transmittance * gap), 1.0 - transmittance * (1.0 - gap))
+                          : float4(0.0, 0.0, 0.0, 0.0);
+    o.depth = front;
+    return o;
+}
+
+// Temporal filter (half resolution): the history at the point the cloud front
+// (or 20 km without cloud) was seen from the previous camera, clipped to the
+// mean +- 1.25 sigma of this frame's 3x3 neighbourhood, blended with this
+// frame (weight gPrevDelta.w: 1 / frames since a reset, at least 0.1).
+VolumeOut PSCloudTemporal(SkyOut i)
+{
+    int2 px = int2(i.pos.xy);
+    int2 last = int2(gVolumeSize.xy) - 1;
+    float4 current = gVolumeColor.Load(int3(px, 0));
+    float depth = gVolumeDepth.Load(int3(px, 0));
+    float4 m1 = 0.0, m2 = 0.0;
+    [unroll] for (int y = -1; y <= 1; ++y)
+    {
+        [unroll] for (int x = -1; x <= 1; ++x)
+        {
+            float4 v = gVolumeColor.Load(int3(clamp(px + int2(x, y), 0, last), 0));
+            m1 += v;
+            m2 += v * v;
+        }
+    }
+    m1 /= 9.0;
+    float4 sigma = sqrt(max(m2 / 9.0 - m1 * m1, 0.0));
+    VolumeOut o;
+    o.color = current;
+    o.depth = depth;
+    [branch] if (gPrevDelta.w < 1.0)
+    {
+        float3 dir = mul(ViewDirAt((float2(px) + 0.5) * 2.0), (float3x3)gViewRot);
+        float4 clip = mul(gPrevViewProj, float4(dir * (depth > 0.0 ? depth : 20000.0) + gPrevDelta.xyz, 1.0));
+        float2 uv = float2(clip.x, -clip.y) / max(clip.w, 1e-6) * 0.5 + 0.5;
+        [branch] if (clip.w > 0.0 && all(abs(uv - 0.5) < 0.5))
+        {
+            float4 history = clamp(gVolumeHistory.SampleLevel(gLinearClamp, uv, 0.0), m1 - 1.25 * sigma,
+                                   m1 + 1.25 * sigma);
+            float historyDepth = gVolumeHistoryDepth.Load(int3(min(int2(uv * gVolumeSize.xy), last), 0));
+            o.color = lerp(history, current, gPrevDelta.w);
+            o.depth = depth > 0.0 && historyDepth > 0.0 ? lerp(historyDepth, depth, gPrevDelta.w)
+                                                         : max(depth, historyDepth);
+        }
+    }
+    return o;
+}
+
+// Composite (full resolution, after the water): the filtered clouds over the
+// scene; SV_Depth = the nearest cloud front around the pixel, so terrain,
+// buildings and vessels in front occlude the clouds per MSAA sample.
+float4 PSCloudComposite(SkyOut i, out float depthOut : SV_Depth) : SV_Target
+{
+    float2 uv = i.pos.xy * 0.5 * gVolumeSize.zw;
+    float4 c = gVolumeHistory.SampleLevel(gLinearClamp, uv, 0.0);
+    float4 d4 = gVolumeHistoryDepth.Gather(gLinearClamp, uv);
+    float front = 1e30;
+    front = d4.x > 0.0 ? min(front, d4.x) : front;
+    front = d4.y > 0.0 ? min(front, d4.y) : front;
+    front = d4.z > 0.0 ? min(front, d4.z) : front;
+    front = d4.w > 0.0 ? min(front, d4.w) : front;
+    float viewZ = (front < 1e29 ? front : 1.0) * -ViewDirAt(i.pos.xy).z;
+    depthOut = gProjParams.z / max(viewZ, 1e-3); // reversed Z
+    float alpha = c.a * gCloudView.x;
+    if (front >= 1e29 || alpha < 0.004)
+        discard;
+    return float4(c.rgb / max(c.a, 1e-4), alpha);
 }
 
 // ---------------------------------------------------------------------------

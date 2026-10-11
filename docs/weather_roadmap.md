@@ -1,11 +1,13 @@
 # Live Weather / Clouds — Roadmap and Plan
 
-Status (2026-10-11): **steps 1, 2 and 3 implemented** (step 3 = GOES-19:
+Status (2026-10-11): **steps 1, 2, 3 and 4 implemented** (step 3 = GOES-19:
 data facts, decision, plan and as built in
 [Step 3](#step-3--goes-19-observed-clouds): quality combo, HDF5 reader,
 fixed-grid navigation + parallax correction, the GOES source in the weather
 service, the blend into the HRRR layers, the comparison script
-`goes_test.txt`); next: [step 4](#step-4--procedural-volumetric-clouds) — see
+`goes_test.txt`; step 4 = [volumetric clouds](#step-4--procedural-volumetric-clouds):
+the level *Volumetric*, ray marched at half resolution with a temporal
+filter); next: [step 5](#step-5--lighting-and-scattering) — see
 [Step 1 — as built](#step-1--as-built) and
 [Step 2 — as built](#step-2--height-aware-layers-motion-shadows-as-built)
 (low / middle / high layers at their own altitudes, wind drift, time blending,
@@ -13,7 +15,7 @@ cheap cloud shadows; plus the weather date / time UI and the sun at that time).
 2026-10-11: three of the step-2 limits lifted — the wind is a field (per cell,
 semi-Lagrangian blend and noise drift), the layers are slabs with thickness
 (sampled along the path inside them), the weather box is four times larger
-(≈ 1200 × 1130 km). Steps 4–6 are the plan.
+(≈ 1200 × 1130 km). Steps 5–6 are the plan.
 
 ## Goal
 
@@ -753,6 +755,99 @@ and marches it — at quarter resolution with depth-aware upsampling and tempora
 reprojection (the full-resolution `SV_Depth` trick does not carry over; compose
 with the scene depth instead).
 
+**As built** (2026-10-11; `shaders/Scene.hlsl` section *Volumetric clouds*,
+`Renderer::createCloudNoise` / `createVolumeTargets` / `drawCloudsVolumetric`;
+checked by `scripts/volumetric_test.txt`):
+
+- **Quality level *Volumetric*** (`--cloud-level volumetric`, script `cloudlevel
+  volumetric`, the fourth combo item, key `8` cycles through it): everything of
+  *Satellite observed* (the GOES-19 correction of the HRRR layers) plus the
+  volumes. The fields, the time blend, the drift, the cloud shadows and the
+  panel's layer toggles / transparency are those of the slabs; only the cloud
+  pass changes (`CloudFrame::volumetric`).
+- **Noise**: two tiling RGBA8 3D textures made on the GPU at start
+  (`CSNoiseShape` 128³: billows = Perlin fBm dilated by Worley fBm + three
+  Worley fBm; `CSNoiseDetail` 32³: three Worley fBm; 9.3 MB with mips, < 1 s
+  including the compile — the Worley loops stay rolled, unrolled they took 13 s
+  to compile). Sampled with a wrap sampler per layer at tile sizes 3 / 5 / 9 km
+  (detail 0.8 / 1.2 / 2 km), the high layer squashed 4× vertically (sheets);
+  both textures in the two drifting phases of the 2D noise (same seeds, same
+  per-cell drift, variance-preserving blend), so the 3D detail moves with the
+  layer winds and evolves with the hour like the shapes.
+- **Density** per layer and sample (`SampleVolume`): the macro field (cover,
+  slab, optical depth) → the column's coverage from the 2D noise of the slabs
+  (`LayerAmountAt`: the same places as the cloud shadows; vertical envelope as
+  the slabs; a wider minimum ramp, 0.3) → the cloud surface where that coverage
+  meets a threshold shaped by the billows (eroded inwards by up to 0.6 / 0.5 /
+  0.6), the detail carving near the surface (inverted = wispy towards the base,
+  cauliflower above), then a short ramp (0.15) to full density, so cores stay
+  solid and edges are billows rather than a fade. A vertical profile (8 % ramps
+  at base and top). Extinction = density × τ / (thickness × 0.9): a full column
+  keeps the layer's optical depth (HRRR heuristic / condensate, GOES COD by day).
+- **Far away** the noise footprint (one full-resolution pixel) leaves the noise
+  unresolved: the billow erosion fades out (the ramp widens back to the
+  coverage), and the uniform veil that remains is thinned to transmit the mean
+  of clear and cloudy parts, 1 − cover (1 − e^−τ), instead of e^−cover·τ (an
+  opaque veil). From 700 km the cover per layer then matches the slabs (the
+  first version had a blocky, overcast-looking low layer there).
+- **March** (`PSCloudMarch`, half resolution): per layer the slab segment of
+  `TraceLayer` (front to back: low → high climbing, high → low descending), up
+  to the farthest scene depth of the pixel's 2 × 2 full-resolution pixels (all
+  MSAA samples), at most 40 km per layer; ~8 steps per slab thickness crossed
+  (≥ 25 m), 4–32 per layer, offset per pixel (interleaved gradient noise) and
+  per frame (golden-ratio sequence); the ray goes through one of the 2 × 2
+  pixels, another each frame. Exits at transmittance 0.01; samples outside a
+  layer's cover cost one field fetch. Aerial perspective per sample; the sky in
+  gaps of cloudy areas hazed as by the slabs. Output: premultiplied colour +
+  opacity, and the distance to the first cloud matter.
+- **Temporal filter** (`PSCloudTemporal`, half resolution, ping-pong history):
+  the history is read where the cloud front (20 km without cloud) was seen from
+  the previous camera (previous rotation × projection + the camera offset, all
+  small numbers), clipped to the mean ± 1.25 σ of this frame's 3 × 3
+  neighbourhood, and blended with weight 1 / n (n = frames since a reset), at
+  least 0.1. Reset when the previous frame did not draw the volumes, on a camera
+  jump (> 200 m or 5 % of the altitude, > 10°), resize or MSAA change. `wait`
+  also waits until 12 frames are accumulated (`Renderer::cloudsSettled`).
+- **Composite** (`PSCloudComposite`, full resolution, after the water): the
+  filtered half-resolution clouds (bilinear) over the scene with `SV_Depth` = the
+  nearest cloud front of the four texels and the read-only depth test, so
+  terrain, buildings and vessels in front occlude the clouds per MSAA sample as
+  in steps 1–3 (no halos at the skyline in the checks). Picking ignores clouds.
+- **Light** (until step 5 marches towards the sun): per sample the slab model —
+  the sun through the macro optical depth up to the slab top along the sun
+  (direct with a forward / back Henyey-Greenstein lobe g = 0.6 / −0.3, diffuse
+  1 / (1 + 0.11 τ)), the sky more towards the top — both thinned near the eroded
+  surface (how deep the sample is inside it), which makes billows read lit and
+  crevices darker. Sun colour, sky light and the layers above (mean cover) as in
+  step 2; per layer at the segment entry.
+- **Fix on the way**: `HeightAt` (height of a ray point above the sphere) took
+  one fixed-point step; from 700 km it put the low layer's samples ~2 km too
+  high (all outside the slab: no low or middle clouds from orbit). It now
+  solves (h − h_c)(2R + h_c + h) = q in the cancellation-free form; the slabs'
+  vertical envelope uses it too (unchanged below ~50 km).
+- **Cost** (RTX 3070 Laptop, 1600 × 900, 4× MSAA, `--no-vsync`, A/B in one run
+  against *Satellite observed*): +1.3–1.6 ms from the water (long grazing
+  segments), +1.0 ms at 3 km, +0.4–0.8 ms at 30 km, +0.5 ms looking up (runs
+  differ with the laptop GPU's clocks); the slab pass itself is ~0.8–0.9 ms. 12 steps per thickness (max 48) cost about twice
+  that for no visible gain. Debug runs are CPU-bound (no difference).
+- **Checks** (`scripts/volumetric_test.txt`, 2026-10-10 17:05 and the sun
+  applied at 22:15 / 00:05): cumulus with billows and depth from 30 km, a deck
+  with rounded tops from 3 km, inside the low layer, from the water, each layer
+  alone, 15 min of drift (17:20, the 17:16 scan), fog off, 60 % transparency,
+  MSAA off, a 1280 × 720 window, the whole box from 700 km next to the slabs
+  (same cover per layer), a flight shot as it ends (no ghosting), key 8 wraps to
+  *Simple shell*; Debug and Release images agree (mean difference 0.1 / 255).
+- **Known limits**: seen from below at close range the cumulus are soft — the
+  HRRR optical depth of low layers (≈ 3 + 4 per km) is far below a real cumulus
+  core's, and without self-shadowing the shading is flat (step 5). One cloud
+  front per pixel: terrain inside a cloud is either in front of all of it or
+  behind (a cloud bank on a mountain side is not cut). Long grazing segments
+  (horizon views from inside or below a layer) are sampled coarsely (≤ 32 steps
+  over ≤ 40 km) and read as smooth haze. The cloud shadows stay the 2D map of
+  step 2 (from the same coverage noise, so they fall under the volumes; volumetric
+  shadows are step 5); the shadow map's square edge is visible from orbit where
+  no cloud hides it.
+
 ## Step 5 — Lighting and scattering
 
 Same sun direction as sky, terrain and water (`SceneSettings::sunDirectionEcef`:
@@ -761,7 +856,10 @@ Henyey-Greenstein phase, a few secondary samples towards the sun. Later:
 blue-noise ray offsets, approximate multiple scattering, volumetric cloud
 shadows (step 2 has a 2D shadow map of the layers), silver lining, aerial perspective
 through and around clouds, sky/ambient dimming under overcast. GOES optical depth
-gives a physically meaningful extinction scale.
+gives a physically meaningful extinction scale. Starting point after step 4:
+`VolumeLight` (the macro optical depth to the slab top + an isotropic
+surface-proximity term) is where the marched sun samples go; the low layers'
+HRRR optical depth heuristic is too low for crisp cumulus bases.
 
 ## Step 6 — Full 3D HRRR fields (optional)
 

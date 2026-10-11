@@ -633,6 +633,7 @@ void App::updateClouds() {
       cf.layer[l] = l == 0;
     }
   }
+  cf.volumetric = _cloudLevel >= CloudLevel::Volumetric;
   cf.manualAltitude = _cloudAltitude;
   cf.opacity = float(1.0 - _cloudTransparency);
   _scene.clouds = true;
@@ -955,6 +956,10 @@ bool App::computeIdle() {
   if (_showClouds && _weather && (_weather->busy() || cloudFade() < 1.0f)) {
     return false;
   }
+  // Volumetric clouds: their temporal history has to build up after a reset.
+  if (!_renderer.cloudsSettled()) {
+    return false;
+  }
   const HttpAssetAccessor::Stats s = _http->stats();
   if (s.inFlight > 0 || s.queued > 0) {
     return false;
@@ -1224,7 +1229,7 @@ void App::stepScript(double dt) {
     if (const std::optional<CloudLevel> level = parseCloudLevel(arg(0))) {
       setCloudLevel(*level, "script cloudlevel");
     } else {
-      LOG_E("script[{}]: cloudlevel expects shell, layers or satellite", c.line);
+      LOG_E("script[{}]: cloudlevel expects shell, layers, satellite or volumetric", c.line);
     }
   } else if (c.verb == "tab") {
     // tab view | weather : select a settings-panel tab
@@ -1528,8 +1533,9 @@ std::vector<std::wstring> App::weatherHudLines() const {
     }
     layers += _cloudLayerOn[l] ? "" : " (hidden)";
   }
-  lines.push_back(wformat("layers    %s%s%s", layers.c_str(), _cloudAltitude >= 0.0 ? " (manual altitude)" : "",
-                          a.hasWind ? "" : " (no wind data)"));
+  lines.push_back(wformat("layers    %s%s%s%s", layers.c_str(), _cloudAltitude >= 0.0 ? " (manual altitude)" : "",
+                          a.hasWind ? "" : " (no wind data)",
+                          _cloudLevel >= CloudLevel::Volumetric ? " | volumetric" : ""));
   goesLine();
   return lines;
 }

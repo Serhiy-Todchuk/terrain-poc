@@ -20,8 +20,9 @@ enum class CloudLevel : int {
   Shell,  // step 1: one thin static shell, the total cover at the altitude of the layer mostly seen from below
   Layers, // step 2: low / middle / high slabs at per-cell altitudes, drifting with the wind
   Satellite, // step 3: + the GOES-19 scan of the weather time blended into the HRRR layers (CloudBlend)
+  Volumetric, // step 4: + the slabs ray marched as volumes with 3D noise (half resolution, temporal filter)
 };
-constexpr int kCloudLevelCount = 3;
+constexpr int kCloudLevelCount = 4;
 
 struct CloudLevelInfo {
   const char* id;      // command line, script and settings value

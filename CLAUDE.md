@@ -5,7 +5,7 @@ the app renders a merged **land + seabed** surface of the New York harbor with
 satellite imagery, extruded OSM buildings, an engine-rendered sea surface,
 georeferenced test vessels and live cloud layers from NOAA HRRR (low / middle / high,
 wind drift, cloud shadows; weather date / time, optional sun at that time; plan and
-status: `docs\weather_roadmap.md`, steps 1–3 done (3 = GOES-19 observed clouds), next: step 4 (volumetric clouds)). It is the *online* variant of the PoC described in
+status: `docs\weather_roadmap.md`, steps 1–4 done (3 = GOES-19 observed clouds, 4 = volumetric clouds), next: step 5 (lighting and scattering)). It is the *online* variant of the PoC described in
 `nyc_geospatial_terrain_poc.md` (D:\Downloads): terrain tiles are generated at
 run time from public web services — **no Cesium ion, no API keys**.
 POI / start view: lon −74.00753296050705, lat 40.66004718826513 (Bush Terminal
@@ -86,7 +86,8 @@ main.cpp ─ App (window, loop, input, harness, HUD; settings panel in AppPanel.
             │        the weather time → Hdf5 + GoesGrid parallax (worker) → GoesScan
             │        → CloudBlend (worker): each bracket dataset corrected → bracket()
             ├─ Renderer: [roof imagery capture] → [cloud blend CS, cloud shadow map CS] → sky
-            │     → terrain tiles → building tiles → vessels → water → clouds → MSAA resolve
+            │     → terrain tiles → building tiles → vessels → water → clouds (slabs, or volumetric:
+            │       half-res march → temporal filter → full-res composite) → MSAA resolve
             │     → HUD (D2D, left) → settings panel (Dear ImGui, right)
             ├─ Ui (Dear ImGui context + Win32/DX11 backends, style, fonts, DPI scale)
             ├─ Vessels (procedural hulls at lon/lat/heading)
@@ -108,7 +109,7 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 | `src/AppPanel.cpp` | `App::drawPanel` (header row with the hide arrow, tab bar) + `drawPanelArrows` (HUD / panel hide-show arrows, `_hudInset`) + `section` (collapsing header with persisted open state) + `panelLayers/Rendering/Camera/Detail/Tools` (tab **View**: toggles with key hints, the cloud transparency slider on the Clouds row (`cloudTransparencySlider`), MSAA combo, fog, vsync, water absorption, contour interval, view presets `kViews`, go-to / copy `--camera`, FOV, fly speed, live terrain/buildings SSE, screenshot, shader reload, log stats) + `panelWeather/History/Sources` (tab **Time & weather**: the same transparency slider above the sections, Now, date combo of days with data + ◀ ▶, time slider over the day's hours with data, ±1 h, Apply to sun, cloud shadows, cloud quality combo, Low/Mid/High; history / forecast table of `WeatherService::catalog()` ±24/48/72 h with a row pinning the time; HRRR facts, catalog / newest run / forecast reach, loaded datasets, status); `currentSettings()` (in App.cpp) = the persisted state; changes logged as `Settings panel: …` |
 | `src/Settings.{h,cpp}` | Persisted UI settings `TerrainPOC.ini` (next to the exe; `--settings file`, `--no-settings`): `Settings::load` (key=value lines into an `AppConfig`, before the command line is applied over it — main.cpp parses argv twice) and `Settings::save` (at `App::shutdown` when `cfg.settingsActive`). The key table lists every persisted field: toggles, MSAA, vsync, tunables, HUD / panel / tab / sections bitmask, history range, window size — not the weather time, not the camera. Harness runs never touch it unless `--settings` is given explicitly |
 | `src/Ui.{h,cpp}` | Dear ImGui plumbing: context (`IniFilename` null), Win32 + DX11 backends, Segoe UI 15 px (fallback: built-in font), dark translucent style, `setScale` (DPI: `ScaleAllSizes` + `FontScaleDpi`), `processMessage`, `wantsMouse/Keyboard`, `newFrame(inputEnabled)` / `endFrame` / `render` |
-| `src/Config.{h,cpp}` | `AppConfig` defaults (incl. the persisted-only fields `imageryOn`, `contourInterval`, `cloudLayers`, `historyHours`, `flySpeed`, `panelTab`, `panelSections`), `CloudLevel` (cloud quality levels shell / layers / satellite: `kCloudLevels` id / name / tooltip, `cloudLevelInfo`, `parseCloudLevel`), CLI parsing over a base config, `--help` text, `parseCameraSpec` |
+| `src/Config.{h,cpp}` | `AppConfig` defaults (incl. the persisted-only fields `imageryOn`, `contourInterval`, `cloudLayers`, `historyHours`, `flySpeed`, `panelTab`, `panelSections`), `CloudLevel` (cloud quality levels shell / layers / satellite / volumetric: `kCloudLevels` id / name / tooltip, `cloudLevelInfo`, `parseCloudLevel`), CLI parsing over a base config, `--help` text, `parseCameraSpec` |
 | `src/Camera.{h,cpp}` | ECEF camera, heading/pitch in local ENU, `apply(CameraSpec)` (eye / look-at), reversed-Z infinite projection, `orbit` / `moveTowards` / `translate`, `rayDirection`, `describe()` (prints `--camera` syntax), `intersectEllipsoid` |
 | `src/TerrainLoader.{h,cpp}` | Custom loader: tile rectangles, children + bounding volumes + geometric error, parent→child source hints (`TileInfo`), `buildTerrainMesh` (border-ring normals, skirts, adaptive diagonals, `_HEIGHT`, `_WATERMASK`) |
 | `src/ElevationService.{h,cpp}` | ImageServer URL building, bsq parsing, source selection per level, NCEI ancestor LRU cache + bilinear `resample`, `isHydroFlat`, **`merge`** (the land/seabed rules), `makeFlatGrid`, `geographicTile` |
@@ -116,7 +117,7 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 | `src/MvtReader.{h,cpp}` | Minimal MVT v2 / protobuf decoder (layers, keys/values, polygons with holes; exterior = positive area in tile coords) |
 | `src/GltfBuilder.{h,cpp}` | `GltfMeshBuilder`: one-primitive glTF (Z-up extras, POSITION min/max, NORMAL, COLOR_0 u8 normalized, scalar / vec2 custom attributes, u16/u32 indices) |
 | `src/RendererResources.{h,cpp}` | `GpuVertex` (32 B) + `packNormalWater`, glTF→GPU conversion (`forEachPrimitiveInScene`, RTC/up-axis; `_FACADE` → `isBuilding`), raster textures (+CPU mips), GPU stats |
-| `src/Renderer.{h,cpp}` | D3D11 device/flip swapchain, sRGB RTV + UNORM UI RTV (`bindUiTarget`), MSAA scene target + `resolveScene`, R32 depth (DSV + read-only DSV + SRV), pipelines/states, runtime shader compile (`MSAA_SAMPLES` define), `drawTiles` (overlay mapping), water ring mesh, clouds (`createCloudTexture` = fields (+ the step-1 single layer as slice 3) + wind textures, `blendClouds` = CSBlendClouds → the blended field + the noise drift texture, `renderCloudShadows` = CSCloudShadow with a change key, `snapshotClouds`, `drawClouds`, sphere / cloud constants and time-of-day sky colours (`skyColours`) in `beginFrame`), D2D/DWrite HUD (`setHudScale`), WIC PNG screenshot (`writePng`, static: any BGR buffer), `pickWorld` (compute-shader depth read), roof imagery capture (`updateRoofImagery`) |
+| `src/Renderer.{h,cpp}` | D3D11 device/flip swapchain, sRGB RTV + UNORM UI RTV (`bindUiTarget`), MSAA scene target + `resolveScene`, R32 depth (DSV + read-only DSV + SRV), pipelines/states, runtime shader compile (`MSAA_SAMPLES` define), `drawTiles` (overlay mapping), water ring mesh, clouds (`createCloudTexture` = fields (+ the step-1 single layer as slice 3) + wind textures, `blendClouds` = CSBlendClouds → the blended field + the noise drift texture, `renderCloudShadows` = CSCloudShadow with a change key, `snapshotClouds`, `drawClouds`, volumetric clouds (`createCloudNoise` = the 3D noise textures once at start, `createVolumeTargets` = half-res march + ping-pong history (size-dependent), `drawCloudsVolumetric` = march → temporal → composite, history reset / camera-jump logic, `cloudsSettled` for `wait`), sphere / cloud constants and time-of-day sky colours (`skyColours`) in `beginFrame`), D2D/DWrite HUD (`setHudScale`), WIC PNG screenshot (`writePng`, static: any BGR buffer), `pickWorld` (compute-shader depth read), roof imagery capture (`updateRoofImagery`) |
 | `src/HttpAssetAccessor.{h,cpp}` | WinHTTP `IAssetAccessor`: queue with per-host limits, retries/backoff, logging, disk cache (request header `Cache-Control: no-cache` bypasses it), `isCached(url)` (header probe, thread-safe), `--offline`, stats, `shutdown()` |
 | `src/WeatherService.{h,cpp}` | Live clouds: weather time (live / pinned to the minute), catalog of available hours (NOMADS top-level day list + day file lists, disk-cache probe), needed hours around the time, one fetch at a time (clouds + dynamics requests), `bracket(t)`, `activity()` for HUD/stats, `catalog()` (per available hour: run, listed / cached / loaded, `HourSummary` of every dataset seen this session) + `newestRun()` for the panel, `setGrid` (the weather box moved: datasets / summaries / cache catalog dropped, re-probed; `_generation` discards in-flight results of the old box), `parseTime` (`YYYYMMDDHH[MM]` / `-N`); `HrrrSource` (filter URLs, list/day parsers, `decode` = GRIB2 → bilinear resample to `CloudGrid`, layer winds per cell (grid → earth rotation; the mean near the centre for the HUD / change key), per-layer altitude/thickness (push-pull `GridFill::fillGaps`, `boxBlur`), optical depth, `constrainLayers` + `summarize`); owns the `GoesSource` (`update(active, satellite)`, `goesScan(t)`, busy / activity include it); at the satellite level `updateObserved` corrects the bracket's datasets with the scan of t (`CloudBlend::blend` on a worker, `_observed` keyed by (dataset, scan), ≤ 4 kept): `bracket(t)` returns them, `modelBracket(t)` the HRRR ones |
 | `src/CloudBlend.{h,cpp}` | GOES-19 into HRRR (step 3 item 5): `timeWeight` (1 within 90 min of the scan, 0 at 3 h), `blend(model, scan)` = per layer the CCLC band cover (low = max(CF1, CF2), middle = max(CF3, CF4), high = CF5) × the 2 km `BCM` over its 10 km mean, visibility from above (Π(1 − cover above)): seen → the observation, hidden → max(model, observed); the uppermost layer (bands ≥ 0.2) ends at `HT` where it fits its bands (cover-weighted, push-pull filled, smoothed); `COD` → its optical depth by day (solar zenith 65°…82° fade); everything carried from the scan time to the dataset's valid time with the dataset's layer winds (semi-Lagrangian like `CSBlendClouds`); `Stats` for the log. Pure C++ |
@@ -132,8 +133,8 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 | `src/Vessels.{h,cpp}` | Procedural container ship / ferry / tug; ENU placement at sea-surface height |
 | `src/TaskProcessor.{h,cpp}` | `CesiumAsync::ITaskProcessor` thread pool (exceptions logged) |
 | `src/Log.{h,cpp}` | spdlog sinks (file, MSVC, console, counting), named loggers, `HR_OK`, HRESULT/Win32 text, UTF-8/UTF-16 |
-| `shaders/Scene.hlsl` | `VSMain/PSMain` (terrain + meshes), `VSSky/PSSky`, `VSWater/PSWater`, `PSClouds` (full-screen, with `VSSky`), `CSBlendClouds`, `CSCloudShadow`; time-of-day light (`SunColor`, `SkyLight`, `ImageryLight`), cloud functions (`LayerAmount`, `CloudTransmission`, `CloudShadow`, `TraceLayer`); cbuffers mirror `Renderer::FrameConstants/DrawConstants/CloudBlendConstants` |
-| `docs/weather_roadmap.md` | Weather / clouds roadmap: data facts (NOMADS, GRIB2, fields), steps 1–2 as built, steps 3–6 plan (GOES-19, volumetric, lighting) |
+| `shaders/Scene.hlsl` | `VSMain/PSMain` (terrain + meshes), `VSSky/PSSky`, `VSWater/PSWater`, `PSClouds` (full-screen, with `VSSky`), `CSBlendClouds`, `CSCloudShadow`, volumetric clouds (`CSNoiseShape`/`CSNoiseDetail` (tiling Perlin-Worley / Worley 3D noise), `PSCloudMarch` → `PSCloudTemporal` → `PSCloudComposite`, `SampleVolume`, `VolumeLight`); time-of-day light (`SunColor`, `SkyLight`, `ImageryLight`), cloud functions (`LayerAmount(At)`, `CloudTransmission`, `CloudShadow`, `TraceLayer`, `HeightAt`); cbuffers mirror `Renderer::FrameConstants/DrawConstants/CloudBlendConstants/CloudVolumeConstants` |
+| `docs/weather_roadmap.md` | Weather / clouds roadmap: data facts (NOMADS, GRIB2, GOES-19 L2), steps 1–4 as built (HRRR shell, layers + wind, GOES-19, volumetric), steps 5–6 plan (lighting, 3D HRRR) |
 | `scripts/build_deps.ps1` | Clone + build + install Cesium Native (both configs), clone Dear ImGui `v1.92.9b` → `third_party\imgui`, `Copy-VcpkgHeaders` (earcut → `third_party\mapbox`, zlib-ng API → `third_party\zlib-ng`; the lib `zlibstatic-ng.lib` is installed with Cesium) (`-ImGuiOnly`: ImGui + the headers, seconds) |
 | `scripts/build.ps1` | MSBuild via vswhere (`-Config`, `-Rebuild`) |
 | `scripts/*.txt` | Harness scripts (see below) |
@@ -383,7 +384,7 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   and their wind fields glide into the new ones (`CloudFrame::glide`, no jump).
 - **Cloud quality levels** (`CloudLevel`, Config.h): one per roadmap step, each adding to
   the previous ones, all kept selectable for comparison — Time & weather combo, key `8` =
-  the next level, script `cloudlevel shell|layers|satellite`, `--cloud-level`, persisted
+  the next level, script `cloudlevel shell|layers|satellite|volumetric`, `--cloud-level`, persisted
   `weather.cloud_level` (the legacy key `weather.cloud_single` = shell / layers is still
   read, never written). A new step adds an enum value + a `kCloudLevels` row and tests
   `_cloudLevel >= …`; the level is logged (`… cloud quality … (--cloud-level …)`).
@@ -427,8 +428,33 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   (fxc warnings fail the harness); no local const arrays in noise code (unoptimised
   Debug compiles copy them per call → X4714).
 - Cost ≈ 0.8–0.9 ms clouds + 0.1–0.3 ms shadows (1600×900, 4× MSAA, full sky; A/B 2026-10-11). Cloud constants
-  are part of `FrameConstants`, the blend's in `CloudBlendConstants` (b2) — keep the
-  HLSL cbuffers in sync.
+  are part of `FrameConstants`, the blend's in `CloudBlendConstants` (b2), the volumes' in
+  `CloudVolumeConstants` (b3) — keep the HLSL cbuffers in sync.
+- **Volumetric** (level `volumetric`, step 4; `docs\weather_roadmap.md` step 4 as built):
+  Satellite observed + the slabs ray marched as volumes, same fields / drift / shadows /
+  layer toggles / transparency (`CloudFrame::volumetric`, `Renderer::drawClouds` →
+  `drawCloudsVolumetric`). Density (`SampleVolume`): the 2D coverage of the slabs
+  (`LayerAmountAt`, min ramp 0.3) → a surface where it meets a billow-shaped threshold
+  (`gNoiseShape` t14, 128³) carved near it by `gNoiseDetail` (t15, 32³), both in the two
+  drifting noise phases, then a short ramp to full density; extinction keeps a full
+  column at the layer's τ. Unresolved noise (footprint = one **full-res** pixel; the ray
+  goes through another of its 2×2 pixels each frame): erosion fades out and the veil is
+  thinned to the area-mean transmittance 1 − cover (1 − e^−τ) (else blocky / overcast from
+  orbit). `PSCloudMarch` (half res, t16/t17 out: premultiplied colour + first-matter
+  distance) marches each layer's `TraceLayer` segment up to the farthest scene depth of
+  its 2×2 pixels (all MSAA samples), ≤ 40 km, ~8 steps per thickness, 4–32 per layer,
+  jittered (IGN + golden ratio); `PSCloudTemporal` (ping-pong t18/t19: reprojection with
+  the cloud front via the previous rotation × projection + camera offset — no ECEF in
+  float — variance clip ±1.25σ, weight max(1/n, 0.1)); `PSCloudComposite` (full res,
+  `SV_Depth` = nearest front of 4 texels, `_dsWater` + read-only DSV: per-sample
+  occlusion as PSClouds). History resets on a camera jump (> 200 m / 5 % altitude,
+  > 10°), resize / MSAA change, a frame without the volumes; `computeIdle` waits for
+  12 frames (`cloudsSettled`). Wrap sampler s1, noise UAV u4. The noise CS keep their
+  Worley loops **rolled** (unrolled: 13 s of runtime compile). `HeightAt` is exact (the
+  old one-step form put samples 2 km too high from 700 km). Light (`VolumeLight`):
+  macro τ to the slab top along the sun + HG lobes + sky by height, thinned near the
+  eroded surface — step 5 replaces it. Cost +0.5–1.5 ms over the slabs (RTX 3070
+  Laptop, 1600×900, 4× MSAA).
 - Sun: fixed (215° / 45° at the POI) or `Ephemeris::sunDirectionEcef(weatherTime)`
   ("Apply to sun"), which also turns on the time-of-day light (`gLight.x`): CPU sky
   colours (`skyColours`), shader `SunColor`/`SkyLight`/`ImageryLight` relative to the
@@ -487,7 +513,7 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   end x 1345 = 0 %), Now (1319, 131), date ◀ / ▶ 157 (▶ x 1559: the tab scrolls, the
   scrollbar narrows it), −1h / slider / +1h 183, Apply to sun 210,
   Cloud shadows 236, Quality combo (1450, 262) (items Simple shell 288, Layers + wind
-  308, Satellite observed 328), Low/Mid/High 288, History header 314 (range
+  308, Satellite observed 328, Volumetric 348), Low/Mid/High 288, History header 314 (range
   combo (1330, 340), items 365 / 385 / 405, table header 365, rows every 19 px from
   376 with the current hour centred ≈ 452 — lower when the scroll is clamped near the
   newest hours: the next row is hit at y 475 either way), Sources 563. x of the
@@ -537,7 +563,7 @@ CLI: `--camera lon,lat,alt,heading,pitch` | `--lookat lon,lat,alt,heading,pitch,
 `--verbose` (`[D]` lines: every request, tile summaries), `--d3d-debug` (needs the *Graphics Tools* Windows
 feature — not installed on the dev machine), `--hud 0|1`, `--panel 0|1`, `--size WxH`, layer flags
 (`--no-terrain/--no-buildings/--no-water/--no-vessels/--no-clouds`, `--contours`, `--wireframe`,
-`--imagery esri|usgs|none`, `--no-facades`, `--no-fog`, `--no-cloud-shadows`, `--cloud-level shell|layers|satellite`,
+`--imagery esri|usgs|none`, `--no-facades`, `--no-fog`, `--no-cloud-shadows`, `--cloud-level shell|layers|satellite|volumetric`,
 `--cloud-transparency PCT`), `--msaa 1|2|4|8`,
 LOD tunables (`--terrain-sse`, `--terrain-max-level`, `--terrain-grid`, `--buildings-sse`,
 `--imagery-sse`), `--water-clarity`, `--shader-dir`, weather (`--weather-time
@@ -559,7 +585,7 @@ Script commands (one per line, `#` comments; live input is ignored while a scrip
 | `drag left\|right x0 y0 x1 y1 [steps]` | synthetic orbit / pan through the real handlers |
 | `wheel x y notches` | synthetic zoom towards a pixel (logs the new `--camera`) |
 | `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off`, `key K` | toggles (`msaa on` = configured count, 4x if started with `--msaa 1`; `sun` = Apply to sun); `key` calls `keyCommand` directly |
-| `cloudlevel shell\|layers\|satellite` | the cloud quality level |
+| `cloudlevel shell\|layers\|satellite\|volumetric` | the cloud quality level |
 | `cloudtransparency PCT` | the drawn clouds' transparency, 0..100 % (the panel sliders; shadows unchanged) |
 | `weather live\|YYYYMMDDHH[MM]\|-N` | the weather time: live / a UTC time to the minute / N hours ago (replay or forecast; cross-fades) |
 | `weather here`, `weather center lon,lat\|default` | move the weather box to the camera (inside the HRRR domain) / a point / back to New York |
@@ -609,7 +635,13 @@ deck of the 00:01 scan) and 2026-10-10 17:05 (day, COD of the 17:01 scan) from 7
 every level picked with real clicks in the Quality combo, the panel hidden for the
 shots; `cloudfields` + `goes` PNGs; switching back reuses the corrections (6 blend lines
 in all), 17:20 takes the 17:16 scan; run `--offline` (all cached; data PNGs
-byte-identical to the online run); expected blend lines in its header).
+byte-identical to the online run); expected blend lines in its header),
+`volumetric_test.txt` (the level *Volumetric*, step 4: 2026-10-10 17:05 from the water,
+below, inside (2.2 km) and above the low layer, 30 km (each layer alone, 15 min drift, fog
+off, 60 % transparency, MSAA off, 1280×720), 700 km next to the slabs (cover per layer
+agrees), sunset / night with the sun applied, a flight shot without `wait`, key 8 wraps to
+Simple shell, the fourth combo item clicked (1400, 348), an A/B of the frame time; run
+`--offline --no-vsync`; the 22:11 scan once from the network).
 Shots include the HUD and the panel (`--panel 0` / `set panel off` for clean scenes).
 
 Exit codes: 0 ok, 1 init failure, 2 bad arguments / `--help`, 3 a `wait` timed out; crash =
@@ -656,8 +688,9 @@ runs at ~15–30 fps while loading.
   time UI, sun at the weather time); step 3 (GOES-19 observed clouds) is done (cloud
   quality combo, `Hdf5` reader, fixed-grid navigation + parallax correction (`GoesGrid`),
   `GoesSource` (scans at the level *Satellite observed*), the blend into the HRRR layers
-  (`CloudBlend`), the comparison script `goes_test.txt`); next: step 4, volumetric
-  clouds, then lighting.
+  (`CloudBlend`), the comparison script `goes_test.txt`); step 4 (volumetric clouds, the
+  level *Volumetric*, `volumetric_test.txt`) is done; next: step 5, lighting and
+  scattering (sun samples through the volumes, volumetric shadows).
 
 - Known: no tides (sea at NAVD88 0); pier decks absent in bare-earth lidar; Esri
   imagery terms for production (USGS alternative is ~2 m); first visit to an area is

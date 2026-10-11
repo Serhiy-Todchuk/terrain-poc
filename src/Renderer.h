@@ -47,6 +47,9 @@ struct CloudFrame {
   // The step-1 look: one thin shell (the datasets' single layer in slice 0,
   // static noise of one phase, no slab samples); the app passes no drift.
   bool single = false;
+  // Step 4: the slabs ray marched as volumes with 3D noise (half resolution +
+  // temporal filter, Renderer::drawClouds); the fields and shadows are the same.
+  bool volumetric = false;
   float opacity = 1.0f; // the drawn clouds (1 - the panel's transparency); shadows unaffected
 };
 
@@ -102,9 +105,13 @@ public:
   void drawTiles(const std::vector<Cesium3DTilesSelection::Tile::ConstPointer>& tiles, bool terrain);
   void drawPrimitive(const GpuPrimitive& primitive, const glm::dmat4& model);
   void drawWater(const Camera& camera);
-  // Cloud layers (after the water): low / middle / high curved shells at their
-  // per-cell altitudes, ray-intersected per pixel by a full-screen pass.
+  // Cloud layers (after the water): low / middle / high slabs at their per-cell
+  // altitudes, ray-intersected per pixel by a full-screen pass, or ray marched
+  // as volumes (CloudFrame::volumetric: half resolution, temporal filter).
   void drawClouds();
+  // False while the volumetric clouds drawn last frame are still accumulating
+  // their temporal history after a reset (camera jump, resize, level switch).
+  bool cloudsSettled() const { return !_volumeDrawn || _volumeHistoryFrames >= kVolumeSettleFrames; }
   // Uploads a weather dataset (main thread). Null on failure (logged).
   // The weather box of the cloud fields (same cell counts; "Fetch weather here"
   // moves it): the lon/lat mapping of every cloud shader and the shadow map.
@@ -165,6 +172,13 @@ private:
     glm::vec4 params; // x: weight of b, y: fade from the snapshot, zw: 1 / texture size
     glm::vec4 times;  // x: drift time of a (s), y: of b, z: wind glide (old -> new datasets), w: single layer (1/0)
     glm::vec4 grid;   // x: north (rad), y: lat span (rad), z: 1 / (R lon span), w: 1 / (R lat span) (uv per m)
+  };
+  // Mirrors cbuffer CloudVolumeConstants (PSCloudMarch / Temporal / Composite).
+  struct CloudVolumeConstants {
+    glm::mat4 prevViewProj; // (point - previous camera, ECEF axes) -> previous clip space
+    glm::vec4 prevDelta;    // xyz: camera - previous camera (ECEF axes, m), w: weight of this frame (1: no history)
+    glm::vec4 size;         // xy: half-resolution target size, zw: 1 / size
+    glm::vec4 params;       // x: jitter phase of this frame (0..1), yz: sub-pixel ray offset (full-res pixels)
   };
   struct DrawConstants {
     glm::mat4 modelView;
@@ -263,8 +277,39 @@ private:
   UINT _cloudBlendMips = 1;
   bool _cloudBlendValid = false, _cloudSnapshotValid = false;
 
+  // Volumetric clouds (step 4): tiling 3D noise made once at start
+  // (CSNoiseShape / CSNoiseDetail), a half-resolution march target (colour +
+  // front distance) and a ping-pong history of the same; the history continues
+  // while consecutive frames draw the volumes without a camera jump.
+  struct VolumeTarget {
+    Microsoft::WRL::ComPtr<ID3D11Texture2D> texture;
+    Microsoft::WRL::ComPtr<ID3D11RenderTargetView> rtv;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv;
+  };
+  bool createCloudNoise();
+  bool createVolumeTargets(); // size-dependent
+  void drawCloudsVolumetric();
+  static constexpr int kVolumeSettleFrames = 12; // history frames before `wait` counts the clouds as settled
+  Microsoft::WRL::ComPtr<ID3D11Texture3D> _noiseShape, _noiseDetail;
+  Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> _noiseShapeSrv, _noiseDetailSrv;
+  Microsoft::WRL::ComPtr<ID3D11SamplerState> _samplerWrap;
+  Microsoft::WRL::ComPtr<ID3D11Buffer> _cloudVolumeCb;
+  VolumeTarget _volumeColor, _volumeDepth, _volumeHistory[2], _volumeHistoryDepth[2];
+  int _volumeWidth = 0, _volumeHeight = 0;
+  int _volumeHistoryIndex = 0;  // the history written last
+  int _volumeHistoryFrames = 0; // frames accumulated since the last reset
+  bool _volumeDrawn = false;    // the last frame drew the volumes
+  int64_t _volumeFrame = -1;    // frame index of the last volumetric draw
+  glm::dvec3 _volumePrevCamera{0.0}, _volumePrevForward{0.0};
+  glm::dmat4 _volumePrevViewProj{1.0}; // previous projection x rotation-only view
+  int64_t _frameIndex = 0;
+  glm::dvec3 _cameraPosition{0.0}; // this frame's camera (beginFrame)
+  glm::dmat3 _viewRotation{1.0};   // ECEF axes -> view space
+  double _cameraAltitude = 0.0;    // m MSL
+
   Microsoft::WRL::ComPtr<ID3D11VertexShader> _vsMain, _vsWater, _vsSky, _vsCapture;
   Microsoft::WRL::ComPtr<ID3D11PixelShader> _psMain, _psWater, _psSky, _psResolve, _psCapture, _psClouds;
+  Microsoft::WRL::ComPtr<ID3D11PixelShader> _psCloudMarch, _psCloudTemporal, _psCloudComposite;
   Microsoft::WRL::ComPtr<ID3D11ComputeShader> _csPickDepth, _csBlendClouds, _csCloudShadow;
   Microsoft::WRL::ComPtr<ID3D11InputLayout> _layoutMain, _layoutWater;
   Microsoft::WRL::ComPtr<ID3D11Buffer> _frameCb, _drawCb;

@@ -103,12 +103,16 @@ conversion. The sea surface is drawn at NAVD88 0 m (≈ local MSL, no tides).
   hours of the time blend, carried to each hour by its layer winds: the observed
   cover per layer where the satellite sees the layer from above, the cloud-top
   height as the top of the uppermost layer, the optical depth by day; cloud
-  bases, winds and clouds hidden under an observed deck stay HRRR's). **Cloud shadows**: a shadow map of
+  bases, winds and clouds hidden under an observed deck stay HRRR's) and
+  *Volumetric* (step 4: the same layers ray marched as volumes — 3D noise made on
+  the GPU at start gives billows, eroded edges and wisps that drift with the
+  layer winds; each column keeps the layer's optical depth; half resolution with
+  a temporal filter, ~0.5–1.5 ms more than the slabs on an RTX 3070 Laptop). **Cloud shadows**: a shadow map of
   the sun's transmission through all layers over the weather domain, updated
   when the clouds or the sun change, darkens terrain, buildings, vessels, water
   and seabed. **Sun**: optionally at the weather time (solar ephemeris), with a
   time-of-day light: sky colours, sun colour and light levels from sunrise to
-  night. Roadmap and the next steps (volumetric clouds, lighting):
+  night. Roadmap and the next steps (lighting and scattering):
   [`docs/weather_roadmap.md`](docs/weather_roadmap.md).
 * **`HttpAssetAccessor`** — WinHTTP `IAssetAccessor` with per-host concurrency
   limits, retries/backoff, full request/error logging and an on-disk response
@@ -179,7 +183,7 @@ to the clipboard, field of view, fly speed, terrain / buildings screen-space
 error (live), screenshot, shader reload, stats to the log. **Time & weather**:
 the same cloud transparency slider at the top, *Now* (live), the date (only days with weather data, ◀ ▶), the time of day
 (only hours with data), ±1 h, *Apply to sun*, cloud shadows, the cloud
-quality (*Simple shell* / *Layers + wind* / *Satellite observed*), the cloud layers low / middle /
+quality (*Simple shell* / *Layers + wind* / *Satellite observed* / *Volumetric*), the cloud layers low / middle /
 high; **History & forecast** — the hours with data ±24 / 48 /
 72 h around the weather time (UTC, model run, where the data is, cover of the
 low / middle / high layers once a dataset was seen; the current hour is tinted,
@@ -232,7 +236,7 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   | `drag left\|right x0 y0 x1 y1 [steps]` | synthetic orbit / pan through the real handlers |
   | `wheel x y notches` | synthetic zoom towards a pixel |
   | `key K`, `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off` | toggles |
-  | `cloudlevel shell\|layers\|satellite` | the cloud quality level |
+  | `cloudlevel shell\|layers\|satellite\|volumetric` | the cloud quality level |
   | `cloudtransparency PCT` | the clouds' transparency, 0..100 % (the panel sliders, `--cloud-transparency`) |
   | `weather live\|YYYYMMDDHH[MM]\|-N` | the weather time: live, a fixed UTC time or N hours ago (replay / forecast, cross-fades) |
   | `weather here`, `weather center lon,lat\|default` | move the weather box to the camera / a point / back to New York |
@@ -267,7 +271,11 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   box, idle at *Layers + wind*, live), `goes_test.txt` (HRRR alone vs HRRR
   corrected by GOES-19: a night and a day case from 700 km, 30 km and the
   harbour, the levels picked in the Quality combo, the field images of both;
-  replays `--offline`), `regression.txt`.
+  replays `--offline`), `volumetric_test.txt` (the *Volumetric* level from the
+  water, below, inside and above the low layer, 30 km, 700 km next to the
+  slabs, each layer alone, drift, fog, transparency, MSAA off, a smaller window,
+  sunset / night, a flight, an A/B of the frame time; replays `--offline`),
+  `regression.txt`.
   Screenshots include the HUD and the panel (`--hud 0`, `--panel 0` or
   `set panel off` for clean scene shots). The clouds are the live weather unless
   `--weather-time` / `weather` pins a time (`--no-clouds` or `set clouds off`
@@ -312,7 +320,7 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
 * No tides: the sea surface is at NAVD88 0 m. The authored 40×40 km area
   integration from the PoC doc is out of scope here.
 * Clouds (steps 1–2 of `docs/weather_roadmap.md`): slabs per layer without 3D
-  detail yet (no billows or wisps); middle / high layer bases are estimates
+  detail (billows and wisps at the level *Volumetric*); middle / high layer bases are estimates
   where lower layers exist (NOMADS offers no pressure-level filter for HRRR);
   data within ~550 km of New York (HRRR's own domain ends ~600 km to the east).
   NOMADS keeps ~2 days of HRRR (+ forecasts); older hours replay only from the
@@ -325,6 +333,11 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   (~9 MB per scan, every 10 min live: ~54 MB/h); scans of the running hour
   bypass the disk cache, and a finished hour replays offline only after it was
   viewed online once it ended.
+* Volumetric clouds (step 4): lit by an approximation until step 5 (no
+  self-shadowing towards the sun), so cumulus seen from close below look soft;
+  one cloud front per pixel (terrain inside a cloud is not cut); horizon views
+  from inside a layer are sampled coarsely; the cloud shadows are still the 2D
+  map of the layers.
 
 ## Layout
 

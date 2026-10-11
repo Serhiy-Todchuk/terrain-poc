@@ -245,6 +245,9 @@ bool Renderer::init(HWND hwnd, int width, int height, bool debugDevice, const st
   smp.AddressU = smp.AddressV = smp.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
   smp.MaxLOD = D3D11_FLOAT32_MAX;
   HR_OK(_device->CreateSamplerState(&smp, &_samplerClamp));
+  smp.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR; // the tiling 3D cloud noise
+  smp.AddressU = smp.AddressV = smp.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+  HR_OK(_device->CreateSamplerState(&smp, &_samplerWrap));
 
   D3D11_BUFFER_DESC cbd{};
   cbd.Usage = D3D11_USAGE_DYNAMIC;
@@ -254,6 +257,8 @@ bool Renderer::init(HWND hwnd, int width, int height, bool debugDevice, const st
   HR_OK(_device->CreateBuffer(&cbd, nullptr, &_frameCb));
   cbd.ByteWidth = UINT((sizeof(DrawConstants) + 15) & ~size_t(15));
   HR_OK(_device->CreateBuffer(&cbd, nullptr, &_drawCb));
+  cbd.ByteWidth = UINT((sizeof(CloudVolumeConstants) + 15) & ~size_t(15));
+  HR_OK(_device->CreateBuffer(&cbd, nullptr, &_cloudVolumeCb));
 
   D3D11_BUFFER_DESC pbd{};
   pbd.ByteWidth = sizeof(float);
@@ -277,6 +282,7 @@ bool Renderer::init(HWND hwnd, int width, int height, bool debugDevice, const st
   if (!compileShaders()) {
     return false;
   }
+  createCloudNoise(); // optional: no volumetric clouds without it (the slabs instead)
   return createSizeDependent();
 }
 
@@ -401,6 +407,94 @@ bool Renderer::createCloudTargets() {
   return true;
 }
 
+bool Renderer::createCloudNoise() {
+  // Tiling RGBA8 3D noise for the volumetric clouds, computed once on the GPU
+  // and mip-mapped (distant samples read the mean, no aliasing).
+  const std::wstring file = _shaderDir + L"\\Scene.hlsl";
+  auto make = [&](const char* entry, UINT size, ComPtr<ID3D11Texture3D>& texture,
+                  ComPtr<ID3D11ShaderResourceView>& srv) {
+    ComPtr<ID3DBlob> blob = compileShader(file, entry, "cs_5_0", _samples);
+    ComPtr<ID3D11ComputeShader> cs;
+    if (!blob || !HR_OK(_device->CreateComputeShader(blob->GetBufferPointer(), blob->GetBufferSize(), nullptr, &cs))) {
+      return false;
+    }
+    D3D11_TEXTURE3D_DESC td{};
+    td.Width = td.Height = td.Depth = size;
+    td.MipLevels = 0; // full chain
+    td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    td.Usage = D3D11_USAGE_DEFAULT;
+    td.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_RENDER_TARGET; // RT: GenerateMips
+    td.MiscFlags = D3D11_RESOURCE_MISC_GENERATE_MIPS;
+    D3D11_UNORDERED_ACCESS_VIEW_DESC uavd{};
+    uavd.Format = td.Format;
+    uavd.ViewDimension = D3D11_UAV_DIMENSION_TEXTURE3D;
+    uavd.Texture3D.MipSlice = 0;
+    uavd.Texture3D.FirstWSlice = 0;
+    uavd.Texture3D.WSize = size;
+    ComPtr<ID3D11UnorderedAccessView> uav;
+    if (!HR_OK(_device->CreateTexture3D(&td, nullptr, &texture)) ||
+        !HR_OK(_device->CreateShaderResourceView(texture.Get(), nullptr, &srv)) ||
+        !HR_OK(_device->CreateUnorderedAccessView(texture.Get(), &uavd, &uav))) {
+      srv.Reset();
+      return false;
+    }
+    ID3D11UnorderedAccessView* uavs[1] = {uav.Get()};
+    _context->CSSetShader(cs.Get(), nullptr, 0);
+    _context->CSSetUnorderedAccessViews(4, 1, uavs, nullptr);
+    _context->Dispatch(size / 4, size / 4, size / 4);
+    uavs[0] = nullptr;
+    _context->CSSetUnorderedAccessViews(4, 1, uavs, nullptr);
+    _context->GenerateMips(srv.Get());
+    return true;
+  };
+  constexpr UINT kShapeSize = 128, kDetailSize = 32;
+  if (!make("CSNoiseShape", kShapeSize, _noiseShape, _noiseShapeSrv) ||
+      !make("CSNoiseDetail", kDetailSize, _noiseDetail, _noiseDetailSrv)) {
+    _noiseShapeSrv.Reset();
+    _noiseDetailSrv.Reset();
+    SPDLOG_LOGGER_ERROR(Log::gpu(), "Cloud noise textures could not be made: volumetric clouds unavailable");
+    return false;
+  }
+  SPDLOG_LOGGER_INFO(Log::gpu(), "Cloud noise: {}^3 shape + {}^3 detail RGBA8 3D textures ({:.1f} MB with mips)",
+                     kShapeSize, kDetailSize,
+                     (double(kShapeSize) * kShapeSize * kShapeSize + double(kDetailSize) * kDetailSize * kDetailSize) *
+                         4.0 * 8.0 / 7.0 / (1024.0 * 1024.0));
+  return true;
+}
+
+bool Renderer::createVolumeTargets() {
+  // Half resolution (rounded up): the march output and two history buffers,
+  // each colour (RGBA16F, premultiplied) + front distance (R32F).
+  _volumeWidth = (_width + 1) / 2;
+  _volumeHeight = (_height + 1) / 2;
+  _volumeHistoryFrames = 0;
+  auto make = [&](DXGI_FORMAT format, VolumeTarget& target) {
+    D3D11_TEXTURE2D_DESC td{};
+    td.Width = UINT(_volumeWidth);
+    td.Height = UINT(_volumeHeight);
+    td.MipLevels = 1;
+    td.ArraySize = 1;
+    td.Format = format;
+    td.SampleDesc.Count = 1;
+    td.Usage = D3D11_USAGE_DEFAULT;
+    td.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    return HR_OK(_device->CreateTexture2D(&td, nullptr, &target.texture)) &&
+           HR_OK(_device->CreateRenderTargetView(target.texture.Get(), nullptr, &target.rtv)) &&
+           HR_OK(_device->CreateShaderResourceView(target.texture.Get(), nullptr, &target.srv));
+  };
+  const bool ok = make(DXGI_FORMAT_R16G16B16A16_FLOAT, _volumeColor) && make(DXGI_FORMAT_R32_FLOAT, _volumeDepth) &&
+                  make(DXGI_FORMAT_R16G16B16A16_FLOAT, _volumeHistory[0]) &&
+                  make(DXGI_FORMAT_R32_FLOAT, _volumeHistoryDepth[0]) &&
+                  make(DXGI_FORMAT_R16G16B16A16_FLOAT, _volumeHistory[1]) &&
+                  make(DXGI_FORMAT_R32_FLOAT, _volumeHistoryDepth[1]);
+  if (!ok) {
+    _volumeColor = {};
+    SPDLOG_LOGGER_ERROR(Log::gpu(), "Volumetric cloud targets ({}x{}) could not be made: the slabs instead",
+                        _volumeWidth, _volumeHeight);
+  }
+  return ok;
+}
+
 bool Renderer::compileShaders() {
   const std::wstring file = _shaderDir + L"\\Scene.hlsl";
   auto vsMain = compileShader(file, "VSMain", "vs_5_0", _samples);
@@ -412,16 +506,19 @@ bool Renderer::compileShaders() {
   auto vsCapture = compileShader(file, "VSCapture", "vs_5_0", _samples);
   auto psCapture = compileShader(file, "PSCapture", "ps_5_0", _samples);
   auto psClouds = compileShader(file, "PSClouds", "ps_5_0", _samples);
+  auto psMarch = compileShader(file, "PSCloudMarch", "ps_5_0", _samples);
+  auto psTemporal = compileShader(file, "PSCloudTemporal", "ps_5_0", _samples);
+  auto psComposite = compileShader(file, "PSCloudComposite", "ps_5_0", _samples);
   auto csPick = compileShader(file, "CSPickDepth", "cs_5_0", _samples);
   auto csBlend = compileShader(file, "CSBlendClouds", "cs_5_0", _samples);
   auto csShadow = compileShader(file, "CSCloudShadow", "cs_5_0", _samples);
   auto psResolve = _samples > 1 ? compileShader(file, "PSResolve", "ps_5_0", _samples) : nullptr;
   if (!vsMain || !psMain || !vsWater || !psWater || !vsSky || !psSky || !vsCapture || !psCapture || !psClouds ||
-      !csPick || !csBlend || !csShadow || (_samples > 1 && !psResolve)) {
+      !psMarch || !psTemporal || !psComposite || !csPick || !csBlend || !csShadow || (_samples > 1 && !psResolve)) {
     return false;
   }
   ComPtr<ID3D11VertexShader> vs1, vs2, vs3, vs4;
-  ComPtr<ID3D11PixelShader> ps1, ps2, ps3, ps4, ps5, ps6;
+  ComPtr<ID3D11PixelShader> ps1, ps2, ps3, ps4, ps5, ps6, ps7, ps8, ps9;
   ComPtr<ID3D11ComputeShader> cs1, cs2, cs3;
   ComPtr<ID3D11InputLayout> layoutMain, layoutWater;
   bool ok = HR_OK(_device->CreateVertexShader(vsMain->GetBufferPointer(), vsMain->GetBufferSize(), nullptr, &vs1)) &&
@@ -436,6 +533,11 @@ bool Renderer::compileShaders() {
                                              &ps5)) &&
             HR_OK(_device->CreatePixelShader(psClouds->GetBufferPointer(), psClouds->GetBufferSize(), nullptr,
                                              &ps6)) &&
+            HR_OK(_device->CreatePixelShader(psMarch->GetBufferPointer(), psMarch->GetBufferSize(), nullptr, &ps7)) &&
+            HR_OK(_device->CreatePixelShader(psTemporal->GetBufferPointer(), psTemporal->GetBufferSize(), nullptr,
+                                             &ps8)) &&
+            HR_OK(_device->CreatePixelShader(psComposite->GetBufferPointer(), psComposite->GetBufferSize(), nullptr,
+                                             &ps9)) &&
             HR_OK(_device->CreateComputeShader(csPick->GetBufferPointer(), csPick->GetBufferSize(), nullptr, &cs1)) &&
             HR_OK(_device->CreateComputeShader(csBlend->GetBufferPointer(), csBlend->GetBufferSize(), nullptr, &cs2)) &&
             HR_OK(_device->CreateComputeShader(csShadow->GetBufferPointer(), csShadow->GetBufferSize(), nullptr, &cs3)) &&
@@ -473,6 +575,9 @@ bool Renderer::compileShaders() {
   _vsCapture = vs4;
   _psCapture = ps5;
   _psClouds = ps6;
+  _psCloudMarch = ps7;
+  _psCloudTemporal = ps8;
+  _psCloudComposite = ps9;
   _csPickDepth = cs1;
   _csBlendClouds = cs2;
   _csCloudShadow = cs3;
@@ -586,6 +691,7 @@ bool Renderer::createSizeDependent() {
   }
   HR_OK(_device->CreateShaderResourceView(_depth.Get(), &srvd, &_depthSrv));
   _depthValidForPick = false;
+  createVolumeTargets(); // optional: the slabs instead
 
   if (_d2dContext) {
     ComPtr<IDXGISurface> surface;
@@ -617,6 +723,11 @@ void Renderer::releaseSizeDependent() {
   _dsvReadOnly.Reset();
   _depthSrv.Reset();
   _depth.Reset();
+  _volumeColor = {};
+  _volumeDepth = {};
+  _volumeHistory[0] = _volumeHistory[1] = {};
+  _volumeHistoryDepth[0] = _volumeHistoryDepth[1] = {};
+  _volumeHistoryFrames = 0;
   _context->Flush();
 }
 
@@ -795,6 +906,10 @@ void Renderer::beginFrame(const Camera& camera, const SceneSettings& settings) {
   const glm::dmat3 rot3(rot);
   const glm::dvec3 upEcef = GeoRef::ellipsoid().geodeticSurfaceNormal(camera.position);
   const double altitude = camera.altitudeMsl();
+  ++_frameIndex;
+  _cameraPosition = camera.position;
+  _viewRotation = rot3;
+  _cameraAltitude = altitude;
 
   FrameConstants fc{};
   fc.proj = glm::mat4(_proj);
@@ -1298,8 +1413,13 @@ void Renderer::renderCloudShadows() {
 }
 
 void Renderer::drawClouds() {
+  _volumeDrawn = false;
   if (!_settings.clouds || !_psClouds || _settings.cloud.opacity <= 0.0f) {
     return; // fully transparent: the shadows (CSCloudShadow) still apply
+  }
+  if (_settings.cloud.volumetric && _noiseShapeSrv && _noiseDetailSrv && _volumeColor.rtv && _cloudVolumeCb) {
+    drawCloudsVolumetric();
+    return;
   }
   // Full-screen pass; depth test against the scene (read-only DSV), no writes:
   // PSClouds outputs the shell depth.
@@ -1322,6 +1442,103 @@ void Renderer::drawClouds() {
   _context->PSSetShader(_psMain.Get(), nullptr, 0);
   _context->OMSetDepthStencilState(_dsOpaque.Get(), 0);
   _context->RSSetState(_settings.wireframe ? _rsWire.Get() : _rsSolid.Get());
+}
+
+void Renderer::drawCloudsVolumetric() {
+  // The history continues when the previous frame drew the volumes too and the
+  // camera did not jump (script `camera`, view buttons): moved more than 200 m
+  // (5 % of the altitude higher up) or turned more than 10 degrees.
+  const glm::dvec3 forward = glm::transpose(_viewRotation) * glm::dvec3(0.0, 0.0, -1.0);
+  const glm::dvec3 delta = _cameraPosition - _volumePrevCamera;
+  const bool jump = glm::length(delta) > std::max(200.0, 0.05 * std::max(_cameraAltitude, 0.0)) ||
+                    glm::dot(forward, _volumePrevForward) < std::cos(Math::degreesToRadians(10.0));
+  const bool continued = _volumeFrame == _frameIndex - 1 && _volumeHistoryFrames > 0 && !jump;
+  _volumeHistoryFrames = continued ? std::min(_volumeHistoryFrames + 1, 1 << 20) : 1;
+  // This frame's weight: the plain mean of the frames since the reset, then an
+  // exponential average over ~10 frames.
+  constexpr float kMinWeight = 0.1f;
+  CloudVolumeConstants vc{};
+  vc.prevViewProj = glm::mat4(_volumePrevViewProj);
+  vc.prevDelta = glm::vec4(glm::vec3(delta), continued ? std::max(1.0f / float(_volumeHistoryFrames), kMinWeight) : 1.0f);
+  vc.size = glm::vec4(float(_volumeWidth), float(_volumeHeight), 1.0f / float(_volumeWidth), 1.0f / float(_volumeHeight));
+  // Per frame: the phase of the step offsets (golden ratio sequence) and which
+  // of the 2x2 full-resolution pixels the ray goes through.
+  static constexpr glm::vec2 kSubPixel[4] = {{-0.5f, -0.5f}, {0.5f, 0.5f}, {0.5f, -0.5f}, {-0.5f, 0.5f}};
+  const glm::vec2 sub = kSubPixel[_frameIndex & 3];
+  vc.params = glm::vec4(float(std::fmod(double(_frameIndex) * 0.6180339887498949, 1.0)), sub.x, sub.y, 0.0f);
+  D3D11_MAPPED_SUBRESOURCE mapped{};
+  if (!HR_OK(_context->Map(_cloudVolumeCb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
+    return;
+  }
+  std::memcpy(mapped.pData, &vc, sizeof(vc));
+  _context->Unmap(_cloudVolumeCb.Get(), 0);
+
+  ID3D11Buffer* volumeCb = _cloudVolumeCb.Get();
+  ID3D11SamplerState* wrap = _samplerWrap.Get();
+  _context->PSSetConstantBuffers(3, 1, &volumeCb);
+  _context->PSSetSamplers(1, 1, &wrap);
+  _context->IASetInputLayout(nullptr);
+  _context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+  _context->VSSetShader(_vsSky.Get(), nullptr, 0);
+  _context->RSSetState(_rsSolid.Get());
+  _context->OMSetDepthStencilState(_dsOff.Get(), 0);
+  _context->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+  const D3D11_VIEWPORT half{0.0f, 0.0f, float(_volumeWidth), float(_volumeHeight), 0.0f, 1.0f};
+  const D3D11_VIEWPORT full{0.0f, 0.0f, float(_width), float(_height), 0.0f, 1.0f};
+  _context->RSSetViewports(1, &half);
+
+  // 1. March (half resolution) into the colour + front distance targets.
+  ID3D11RenderTargetView* march[2] = {_volumeColor.rtv.Get(), _volumeDepth.rtv.Get()};
+  _context->OMSetRenderTargets(2, march, nullptr);
+  ID3D11ShaderResourceView* depth = _depthSrv.Get();
+  ID3D11ShaderResourceView* noise[2] = {_noiseShapeSrv.Get(), _noiseDetailSrv.Get()};
+  _context->PSSetShaderResources(1, 1, &depth);
+  _context->PSSetShaderResources(14, 2, noise);
+  _context->PSSetShader(_psCloudMarch.Get(), nullptr, 0);
+  _context->Draw(3, 0);
+
+  // 2. Temporal filter: the march + the previous history -> the other history.
+  const int previous = _volumeHistoryIndex, next = 1 - previous;
+  ID3D11RenderTargetView* history[2] = {_volumeHistory[next].rtv.Get(), _volumeHistoryDepth[next].rtv.Get()};
+  _context->OMSetRenderTargets(2, history, nullptr);
+  ID3D11ShaderResourceView* temporalInputs[4] = {_volumeColor.srv.Get(), _volumeDepth.srv.Get(),
+                                                 _volumeHistory[previous].srv.Get(),
+                                                 _volumeHistoryDepth[previous].srv.Get()};
+  _context->PSSetShaderResources(16, 4, temporalInputs);
+  _context->PSSetShader(_psCloudTemporal.Get(), nullptr, 0);
+  _context->Draw(3, 0);
+
+  // 3. Composite over the scene (full resolution, depth-tested per sample).
+  ID3D11RenderTargetView* rtv = sceneRtv();
+  _context->OMSetRenderTargets(1, &rtv, _dsvReadOnly.Get());
+  _context->RSSetViewports(1, &full);
+  ID3D11ShaderResourceView* compositeInputs[4] = {nullptr, nullptr, _volumeHistory[next].srv.Get(),
+                                                  _volumeHistoryDepth[next].srv.Get()};
+  _context->PSSetShaderResources(16, 4, compositeInputs);
+  _context->PSSetShader(_psCloudComposite.Get(), nullptr, 0);
+  _context->OMSetDepthStencilState(_dsWater.Get(), 0);
+  _context->OMSetBlendState(_bsAlpha.Get(), nullptr, 0xffffffff);
+  _context->Draw(3, 0);
+  _stats.drawCalls += 3;
+
+  // The targets are written again next frame: unbind them as inputs.
+  ID3D11ShaderResourceView* none[4] = {nullptr, nullptr, nullptr, nullptr};
+  _context->PSSetShaderResources(16, 4, none);
+  _context->PSSetShaderResources(1, 1, none);
+  _context->OMSetBlendState(nullptr, nullptr, 0xffffffff);
+  _context->OMSetRenderTargets(1, &rtv, _dsv.Get());
+  _context->IASetInputLayout(_layoutMain.Get());
+  _context->VSSetShader(_vsMain.Get(), nullptr, 0);
+  _context->PSSetShader(_psMain.Get(), nullptr, 0);
+  _context->OMSetDepthStencilState(_dsOpaque.Get(), 0);
+  _context->RSSetState(_settings.wireframe ? _rsWire.Get() : _rsSolid.Get());
+
+  _volumeHistoryIndex = next;
+  _volumeFrame = _frameIndex;
+  _volumePrevCamera = _cameraPosition;
+  _volumePrevForward = forward;
+  _volumePrevViewProj = _proj * glm::dmat4(_viewRotation);
+  _volumeDrawn = true;
 }
 
 void Renderer::resolveScene() {

@@ -39,6 +39,10 @@ constexpr CloudLevelInfo kCloudLevels[kCloudLevelCount] = {
      "parallax-corrected, ~9 MB per scan, a new one every 10 min live) blended into the HRRR layers: the observed "
      "cover where the satellite sees a layer, the cloud tops, the optical depth by day. Bases, winds and clouds "
      "under an observed deck stay HRRR's"},
+    {"volumetric", "Volumetric",
+     "Step 4: + the layers as volumes: ray marched through 3D noise (billows, eroded edges, wisps) that drifts "
+     "with the wind, the same fields and optical depths; half resolution with a temporal filter. GOES-19 as at "
+     "Satellite observed"},
 };
 
 } // namespace
@@ -112,14 +116,15 @@ Data / rendering:
                                default a fixed afternoon sun
   --cloud-altitude m           every cloud layer at this altitude above MSL (default: per-cell
                                HRRR altitudes of the low / middle / high layers)
-  --cloud-level shell|layers|satellite
+  --cloud-level shell|layers|satellite|volumetric
                                cloud quality level, one per roadmap step (default layers):
                                shell = step 1, one thin static shell (HRRR total cover at the
                                altitude of the layer mostly seen from below); layers = step 2,
                                the low / middle / high slabs drifting with the wind; satellite =
                                step 3, + the GOES-19 scan of the weather time blended into the
                                layers (observed cover, cloud tops, optical depth by day; ~9 MB
-                               per scan)
+                               per scan); volumetric = step 4, + the layers ray marched as
+                               volumes with drifting 3D noise
   --cloud-transparency PCT     the drawn clouds' transparency, 0..100 % (default 0: as the
                                weather makes them; their shadows keep their strength)
   --weather-center lon,lat|default
@@ -271,7 +276,7 @@ std::optional<AppConfig> parseCommandLine(int argc, char** argv, const AppConfig
       cfg.cloudTransparency = std::clamp(std::stod(v), 0.0, 100.0) / 100.0;
     } else if (a == "--cloud-level") {
       const std::optional<CloudLevel> level = next(v) ? parseCloudLevel(v) : std::nullopt;
-      if (!level) return fail("--cloud-level expects shell, layers or satellite");
+      if (!level) return fail("--cloud-level expects shell, layers, satellite or volumetric");
       cfg.cloudLevel = *level;
     } else if (a == "--contours") {
       cfg.contours = true;
