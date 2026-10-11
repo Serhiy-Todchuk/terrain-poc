@@ -1,0 +1,33 @@
+# GOES-R fixed-grid navigation and parallax correction (src/GoesGrid.*,
+# docs/weather_roadmap.md step 3, plan item 3) with the script command `goes`:
+# the GOES-19 L2 files of the 2026-10-11 00:01 UTC CONUS scan (those of
+# netcdf_test.txt + the band-13 brightness temperature, ~13 MB once from the
+# NOAA bucket, then cached) on the default weather box, next to the HRRR 00z
+# analysis of the same box (NOMADS once, then cached), and a clear night scan of
+# 2026-10-10 09:01 (band 13 + cloud-top heights, 4.3 MB) for the coastline check.
+# Run: TerrainPOC.exe --script ..\..\scripts\goes_nav_test.txt --shot-dir ..\..\shots\goes_nav --no-terrain --no-buildings
+# Expected log (`GOES ...` lines, [data]):
+#   PUG example: differences < 0.01 urad; every file's image centre = its
+#   geospatial_lat/lon_center (-87.09695 E 30.08300 N, < 1e-5 deg); pixel centres
+#   inside the file's extent, round trip < 1e-9 rad, 0 hidden on the way back;
+#   ACMC: 3702838 pixels on the Earth vs total_number_of_cloud_mask_points 3702837.
+#   Parallax at the box centre (-74.0, 40.65): zenith 46.98 deg, a 10 km cloud top
+#   appears 10.72 km away towards 1.5 deg (= 10 km x tan(zenith)).
+#   00:01 (a high deck, 95 % cloud tops, mean 10.3 km): shift mean 11.1 km (north
+#   11.06, east 0.26), max 18.1 km, ~80 cells unconverged; agreement with HRRR
+#   00z: cloud mask 69.4 % -> 69.7 % corrected, cloud tops 70.1 % -> 70.4 %.
+#   09:01: cloud tops on 73 %, shift mean 8.5 km. Release: cloudTopHeights
+#   ~170 ms, resample ~20-40 ms per product, window reads 1-8 ms.
+# Images (shot dir, goes_<scan>_*.png, 2 px per cell, 1-degree graticule, green
+# crosses = coastal landmarks): 00:01 *_parallax vs *_flat = the cloud edges
+# move south by ~1.07 x their height (a high deck: ~11 km); hrrr_TCDC = the HRRR
+# cover of the same hour. 2026-10-10 09:01 (night, upstate New York and the Gulf
+# of Maine clear) CMIPC_CMI_flat = band 13: Lake Ontario / Erie and the Maine
+# coast dark (warm water) through their crosses (Niagara mouth, Oswego, Kingston,
+# Buffalo, Portland Head, Cape Ann) - no offset, no flip.
+weather 2026101100
+wait
+goes https://noaa-goes19.s3.amazonaws.com/ABI-L2-ACHAC/2026/284/00/OR_ABI-L2-ACHAC-M6_G19_s20262840001181_e20262840003554_c20262840005328.nc https://noaa-goes19.s3.amazonaws.com/ABI-L2-CCLC/2026/284/00/OR_ABI-L2-CCLC-M6_G19_s20262840001181_e20262840003554_c20262840006071.nc https://noaa-goes19.s3.amazonaws.com/ABI-L2-ACMC/2026/284/00/OR_ABI-L2-ACMC-M6_G19_s20262840001181_e20262840003554_c20262840004304.nc https://noaa-goes19.s3.amazonaws.com/ABI-L2-CODC/2026/284/00/OR_ABI-L2-CODC-M6_G19_s20262840001181_e20262840003554_c20262840005590.nc https://noaa-goes19.s3.amazonaws.com/ABI-L2-CMIPC/2026/284/00/OR_ABI-L2-CMIPC-M6C13_G19_s20262840001181_e20262840003566_c20262840004054.nc
+goes https://noaa-goes19.s3.amazonaws.com/ABI-L2-ACHAC/2026/283/09/OR_ABI-L2-ACHAC-M6_G19_s20262830901180_e20262830903554_c20262830905303.nc https://noaa-goes19.s3.amazonaws.com/ABI-L2-CMIPC/2026/283/09/OR_ABI-L2-CMIPC-M6C13_G19_s20262830901180_e20262830903566_c20262830904043.nc
+wait
+stats

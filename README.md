@@ -229,6 +229,7 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   | `tab view\|weather` | select a settings-panel tab |
   | `click x y`, `scroll x y notches`, `type text` / `type <enter>` | real window messages (panel first, then the scene) |
   | `netcdf url\|path [variable …]` | log a NetCDF-4 / HDF5 file (variables, decoded statistics) and save PNGs of the named 2D variables (developer tool for the GOES-19 data) |
+  | `goes url\|path …` | the GOES-19 L2 files of one scan on the weather box: navigation checks, the main variable of each product resampled with and without the parallax correction (PNGs with a graticule and coastal landmarks), compared with the HRRR hour loaded for the weather time (developer tool) |
   | `size WxH`, `sleep s`, `stats`, `log text`, `quit` | misc |
 
   Included: `scripts\shots_poi.txt` (POI views incl. 1 m contours on land and
@@ -246,7 +247,10 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   30 km, each layer alone, shadows on / off, 10 minutes of drift, fog off,
   sunrise / sunset / night, the weather domain, the simple shell level, live),
   `netcdf_test.txt` (the HDF5 reader on four GOES-19 cloud products from the
-  NOAA bucket; expected values in its header), `regression.txt`.
+  NOAA bucket; expected values in its header), `goes_nav_test.txt` (GOES
+  navigation and parallax correction: two scans on the weather box, a clear
+  night for the coastline check, the HRRR hour for comparison; expected values
+  in its header), `regression.txt`.
   Screenshots include the HUD and the panel (`--hud 0`, `--panel 0` or
   `set panel off` for clean scene shots). The clouds are the live weather unless
   `--weather-time` / `weather` pins a time (`--no-clouds` or `set clouds off`

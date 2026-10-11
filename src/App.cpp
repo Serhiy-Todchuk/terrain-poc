@@ -1265,6 +1265,16 @@ void App::stepScript(double dt) {
       inspectNetcdf(_http, *_asyncSystem, arg(0), std::vector<std::string>(c.args.begin() + 1, c.args.end()),
                     _cfg.shotDir);
     }
+  } else if (c.verb == "goes") {
+    // goes <url|path> ... : the GOES-R L2 files of one scan on the weather box
+    // (navigation + parallax checks, grid PNGs in the shot dir, compared with the
+    // loaded HRRR datasets around the weather time). `wait` covers it.
+    if (c.args.empty() || !_weather) {
+      LOG_E("script[{}]: goes expects the URLs or paths of a GOES scan's L2 files", c.line);
+    } else {
+      const WeatherService::Bracket bracket = _weather->bracket(int64_t(std::floor(weatherTime())));
+      inspectGoesScan(_http, *_asyncSystem, c.args, _weather->grid(), {bracket.before, bracket.after}, _cfg.shotDir);
+    }
   } else if (c.verb == "log") {
     LOG_I("script note: {}", joinedArgs);
   } else if (c.verb == "stats") {

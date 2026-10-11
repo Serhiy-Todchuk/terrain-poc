@@ -99,7 +99,9 @@
     <ClCompile Include="src\Ephemeris.cpp" />
     <ClCompile Include="src\GeoRef.cpp" />
     <ClCompile Include="src\GltfBuilder.cpp" />
+    <ClCompile Include="src\GoesGrid.cpp" />
     <ClCompile Include="src\Grib2.cpp" />
+    <ClCompile Include="src\GridFill.cpp" />
     <ClCompile Include="src\Hdf5.cpp" />
     <ClCompile Include="src\HttpAssetAccessor.cpp" />
     <ClCompile Include="src\Log.cpp" />
@@ -147,7 +149,9 @@
     <ClInclude Include="src\Ephemeris.h" />
     <ClInclude Include="src\GeoRef.h" />
     <ClInclude Include="src\GltfBuilder.h" />
+    <ClInclude Include="src\GoesGrid.h" />
     <ClInclude Include="src\Grib2.h" />
+    <ClInclude Include="src\GridFill.h" />
     <ClInclude Include="src\Hdf5.h" />
     <ClInclude Include="src\HttpAssetAccessor.h" />
     <ClInclude Include="src\Log.h" />

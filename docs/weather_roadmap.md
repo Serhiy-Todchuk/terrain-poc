@@ -1,7 +1,8 @@
 # Live Weather / Clouds — Roadmap and Plan
 
 Status (2026-10-11): **steps 1 and 2 implemented**, step 3 (GOES-19) started
-(data facts, decision and plan in [Step 3](#step-3--goes-19-observed-clouds)) — see
+(data facts, decision and plan in [Step 3](#step-3--goes-19-observed-clouds); done:
+quality combo, HDF5 reader, fixed-grid navigation + parallax correction) — see
 [Step 1 — as built](#step-1--as-built) and
 [Step 2 — as built](#step-2--height-aware-layers-motion-shadows-as-built)
 (low / middle / high layers at their own altitudes, wind drift, time blending,
@@ -433,7 +434,7 @@ component the PoC does not have), THREDDS (above).
    decoded values against THREDDS `dataset.xml` and physical ranges).
    **Done 2026-10-11** (as built below).
 3. GOES fixed-grid navigation (lon / lat ↔ scan angles) and the parallax
-   correction from the cloud-top height.
+   correction from the cloud-top height. **Done 2026-10-11** (as built below).
 4. `GoesSource` in `WeatherService`: bucket listing → the newest file at or before
    the weather time per product, every 10 min live; replay from the same listing.
 5. Blend into `CloudFields`: GOES cover corrects the HRRR cover per layer
@@ -474,6 +475,67 @@ component the PoC does not have), THREDDS (above).
   built-in self-check of the tool); 62 truncated / corrupted files give errors,
   no crash (also in Debug with checked iterators). `CCLC` `TCF` marks ~48 % of
   the pixels with 65531 (just above `valid_range`): missing, not cloud-free.
+
+**Navigation and parallax — as built** (2026-10-11; `src/GoesGrid.*`, pure C++
+plus the `GeoRef` geoid; checked by the script command `goes` and
+`scripts/goes_nav_test.txt`):
+
+- `Goes::Projection` takes its constants from the file's
+  `goes_imager_projection` (GRS80, perspective point 35 786 023 m, origin
+  −75°: the nominal fixed grid; the actual sub-satellite point drifts, e.g.
+  −75.2°, and does not enter the navigation). `scanAngles` (lon / lat / height
+  or ECEF → x / y) projects any point, not only ground points, so the parallax
+  correction is a *gather*: a `CloudGrid` cell samples the pixel on the line of
+  sight to the point above it at the cloud's height, no inverse projection and
+  no holes. `groundPoint` is the PUG inverse (for checks and the shift
+  statistics).
+- **Visibility below the ellipsoid**: the grid cells sit at MSL, ~30 m below
+  the ellipsoid around New York; tested against the ellipsoid itself, the line
+  of sight "entered the Earth" just before every cell and all grids came out
+  empty. A point below the ellipsoid is now tested against the (scaled) sphere
+  through itself.
+- `Goes::Raster` reads a (y, x) variable with its regular x / y axes, only the
+  window that can show the weather box (its outline at 0 and 20 km + 2 pixels:
+  the 10 km products 81 × 131 pixels, the 2 km ones 383 × 633 of 1500 × 2500,
+  1–8 ms instead of 75–90 ms for a whole 2 km field). The bilinear sample needs
+  half of the weight on valid pixels (edges end between pixels instead of
+  growing by one).
+- `Goes::cloudTopHeights` solves h = HT(line of sight(cell, h)) per cell by a
+  fixed-point iteration on a gap-filled copy of `HT` (push-pull, so clear cells
+  near a cloud take its height and cloud edges move with their cloud): four
+  plain steps, then four half steps (steep edges between low and high tops).
+  It returns the corrected tops and the solved line-of-sight height of every
+  cell, which corrects the 2 km mask / optical depth of the same scan.
+  `GridFill` (the push-pull `fillGaps` and `boxBlur`) moved out of
+  `WeatherService.cpp` for it, unchanged (the `clouds_test` shots are identical).
+- Geometry at New York: satellite zenith angle 47°, a cloud top appears
+  1.07 × its height away, towards 1.5° (north): a cirrus deck at 10 km by
+  ~11 km, the highest tops (~16 km) by 18 km. The 2026-10-11 00:01 scan (a
+  high deck, mean top 10.3 km over 95 % of the box): mean shift 11.1 km
+  (north 11.06, east 0.26), 81 of 235 008 cells unconverged (> 100 m); the
+  cloud mask's agreement with the HRRR 00z cover (cloudy ≥ 50 % / clear)
+  rises from 69.4 % to 69.7 %, the cloud tops' from 70.1 % to 70.4 %.
+- Checks: the Product User Guide's worked example (33.846162 N 84.690932 W →
+  x −0.024052, y 0.095340 rad) to < 0.01 µrad; each file's image centre against
+  its `geospatial_lat_center` / `lon_center` (4e-6°); every pixel centre on the
+  Earth inside the file's extent (the 2 km centres reach its eastern and
+  southern bounds exactly) and back to its scan angles (2e-15 rad), also from
+  110 m below the ellipsoid; 3 702 838 pixels on the Earth against `ACMC`'s
+  `total_number_of_cloud_mask_points` 3 702 837. Visually: band 13 of the clear
+  night scan 2026-10-10 09:01 puts Lake Ontario, the east end of Lake Erie and
+  the Maine coast through the landmark crosses (Niagara mouth, Oswego,
+  Kingston, Buffalo, Portland Head, Cape Ann) to about one cell (2–3 km), and
+  the corrected cloud-top images move the high-cloud edges south while low
+  clouds stay.
+- Cost (Release, default box): `resample` 20–40 ms per product,
+  `cloudTopHeights` ~170 ms (8 iterations × 235 k cells); Debug ~1.3 s.
+- Findings for item 5: `ACMC` `BCM` counts thin cirrus as cloud (95 % of the
+  box at 00:01 where HRRR has a mean cover of 65 %), so the mask alone
+  overstates the cover seen from the ground — weight it by `COD` / the HRRR
+  layers. `CCLC` `TCF` is missing (65531) over the large high-cloud systems and
+  valid mostly in clear or broken areas — it cannot be the only cover source
+  either. All 13 hourly scans probed on 2026-10-10/11 had cloud tops over
+  67–97 % of the box.
 
 **UI — cloud quality levels** (requested 2026-10-11): step 3 replaces the
 *Single layer (step-1 look)* checkbox with a combo box of cloud quality levels
