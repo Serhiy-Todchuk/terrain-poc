@@ -431,6 +431,7 @@ component the PoC does not have), THREDDS (above).
    **Done 2026-10-11.**
 2. `Hdf5` reader, checked on cached `ACHAC` / `CCLC` files (structure, attributes,
    decoded values against THREDDS `dataset.xml` and physical ranges).
+   **Done 2026-10-11** (as built below).
 3. GOES fixed-grid navigation (lon / lat ↔ scan angles) and the parallax
    correction from the cloud-top height.
 4. `GoesSource` in `WeatherService`: bucket listing → the newest file at or before
@@ -439,6 +440,40 @@ component the PoC does not have), THREDDS (above).
    (`CCLC` bands), `ACHA` top height the top of the highest layer, `COD` the
    optical depth by day; HRRR alone at night and outside the GOES data.
 6. `goes_test.txt`: HRRR vs GOES shots through the quality combo.
+
+**HDF5 reader — as built** (2026-10-11; `src/Hdf5.*`, ~1300 lines, pure C++):
+
+- Supports exactly what the four products use (checked on `ACHAC`, `CCLC`,
+  `ACMC`, `CODC`): superblock 2 / 3; version-2 object headers with continuation
+  blocks; groups with compact links or dense ones (fractal heap with direct or
+  nested indirect root blocks + the v2 B-tree name index, any depth); compact
+  and dense attributes (attribute messages 1–3); dataspaces 1 / 2; integer and
+  IEEE float types in either byte order (the data-less NetCDF dimension
+  datasets are big-endian floats), fixed-length strings — other types
+  (references, compounds, variable-length: `DIMENSION_LIST`, `REFERENCE_LIST`)
+  stay listed as raw bytes; fill values (messages 4 / 5); data layout 3
+  (compact, contiguous, chunked with a v1 B-tree chunk index), filters shuffle +
+  deflate (`zng_uncompress`). Everything else is an error naming the structure;
+  checksums are not verified.
+- `File::read` returns any hyperslab and decodes only the chunks that intersect
+  it (CONUS chunks: `ACHAC`/`CCLC` 262 or 300 rows × 500, `ACMC` 104 × 2500,
+  `CODC` 52 × 2500 — whole image rows, so a weather-box window decodes only the
+  chunk rows it spans). `readValues` applies the NetCDF / CF
+  conventions (`_FillValue`, `valid_range` / `valid_min` / `valid_max` in packed
+  units → NaN, `_Unsigned`, `scale_factor`, `add_offset`).
+- Cost (Release): structure 0.3 ms per file; a full 10 km field 4 ms, a full
+  2 km field (3.75 M values) 75–90 ms on one worker.
+- Checks (`scripts/netcdf_test.txt`, the script command `netcdf`): valid counts,
+  min / max / mean equal an independent decode (a Python prototype with zlib +
+  numpy) for `HT`, `TCF`, `COD`, `BCM`, and the files' own summary variables
+  (`cloud_pixels` 107 655 and `mean_cloud_top_height` 7476.7 m; the
+  clear / probably clear / probably cloudy / cloudy counts give exactly the
+  mean `ACM` 1.9421 and `BCM` 0.63825); `x` / `y` are the published CONUS fixed
+  grid; the PNGs show north up, the Earth's limb in the corner and no seams at
+  chunk boundaries; windows across chunk boundaries equal the full read (a
+  built-in self-check of the tool); 62 truncated / corrupted files give errors,
+  no crash (also in Debug with checked iterators). `CCLC` `TCF` marks ~48 % of
+  the pixels with 65531 (just above `valid_range`): missing, not cloud-free.
 
 **UI — cloud quality levels** (requested 2026-10-11): step 3 replaces the
 *Single layer (step-1 look)* checkbox with a combo box of cloud quality levels

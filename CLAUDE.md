@@ -5,7 +5,7 @@ the app renders a merged **land + seabed** surface of the New York harbor with
 satellite imagery, extruded OSM buildings, an engine-rendered sea surface,
 georeferenced test vessels and live cloud layers from NOAA HRRR (low / middle / high,
 wind drift, cloud shadows; weather date / time, optional sun at that time; plan and
-status: `docs\weather_roadmap.md`, steps 1–2 done). It is the *online* variant of the PoC described in
+status: `docs\weather_roadmap.md`, steps 1–2 done, step 3 (GOES-19) in progress). It is the *online* variant of the PoC described in
 `nyc_geospatial_terrain_poc.md` (D:\Downloads): terrain tiles are generated at
 run time from public web services — **no Cesium ion, no API keys**.
 POI / start view: lon −74.00753296050705, lat 40.66004718826513 (Bush Terminal
@@ -113,11 +113,13 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 | `src/MvtReader.{h,cpp}` | Minimal MVT v2 / protobuf decoder (layers, keys/values, polygons with holes; exterior = positive area in tile coords) |
 | `src/GltfBuilder.{h,cpp}` | `GltfMeshBuilder`: one-primitive glTF (Z-up extras, POSITION min/max, NORMAL, COLOR_0 u8 normalized, scalar / vec2 custom attributes, u16/u32 indices) |
 | `src/RendererResources.{h,cpp}` | `GpuVertex` (32 B) + `packNormalWater`, glTF→GPU conversion (`forEachPrimitiveInScene`, RTC/up-axis; `_FACADE` → `isBuilding`), raster textures (+CPU mips), GPU stats |
-| `src/Renderer.{h,cpp}` | D3D11 device/flip swapchain, sRGB RTV + UNORM UI RTV (`bindUiTarget`), MSAA scene target + `resolveScene`, R32 depth (DSV + read-only DSV + SRV), pipelines/states, runtime shader compile (`MSAA_SAMPLES` define), `drawTiles` (overlay mapping), water ring mesh, clouds (`createCloudTexture` = fields (+ the step-1 single layer as slice 3) + wind textures, `blendClouds` = CSBlendClouds → the blended field + the noise drift texture, `renderCloudShadows` = CSCloudShadow with a change key, `snapshotClouds`, `drawClouds`, sphere / cloud constants and time-of-day sky colours (`skyColours`) in `beginFrame`), D2D/DWrite HUD (`setHudScale`), WIC PNG screenshot, `pickWorld` (compute-shader depth read), roof imagery capture (`updateRoofImagery`) |
+| `src/Renderer.{h,cpp}` | D3D11 device/flip swapchain, sRGB RTV + UNORM UI RTV (`bindUiTarget`), MSAA scene target + `resolveScene`, R32 depth (DSV + read-only DSV + SRV), pipelines/states, runtime shader compile (`MSAA_SAMPLES` define), `drawTiles` (overlay mapping), water ring mesh, clouds (`createCloudTexture` = fields (+ the step-1 single layer as slice 3) + wind textures, `blendClouds` = CSBlendClouds → the blended field + the noise drift texture, `renderCloudShadows` = CSCloudShadow with a change key, `snapshotClouds`, `drawClouds`, sphere / cloud constants and time-of-day sky colours (`skyColours`) in `beginFrame`), D2D/DWrite HUD (`setHudScale`), WIC PNG screenshot (`writePng`, static: any BGR buffer), `pickWorld` (compute-shader depth read), roof imagery capture (`updateRoofImagery`) |
 | `src/HttpAssetAccessor.{h,cpp}` | WinHTTP `IAssetAccessor`: queue with per-host limits, retries/backoff, logging, disk cache (request header `Cache-Control: no-cache` bypasses it), `isCached(url)` (header probe, thread-safe), `--offline`, stats, `shutdown()` |
 | `src/WeatherService.{h,cpp}` | Live clouds: weather time (live / pinned to the minute), catalog of available hours (NOMADS top-level day list + day file lists, disk-cache probe), needed hours around the time, one fetch at a time (clouds + dynamics requests), `bracket(t)`, `activity()` for HUD/stats, `catalog()` (per available hour: run, listed / cached / loaded, `HourSummary` of every dataset seen this session) + `newestRun()` for the panel, `setGrid` (the weather box moved: datasets / summaries / cache catalog dropped, re-probed; `_generation` discards in-flight results of the old box), `parseTime` (`YYYYMMDDHH[MM]` / `-N`); `HrrrSource` (filter URLs, list/day parsers, `decode` = GRIB2 → bilinear resample to `CloudGrid`, layer winds per cell (grid → earth rotation; the mean near the centre for the HUD / change key), per-layer altitude/thickness (push-pull `fillGaps`, `boxBlur`), optical depth, summary) |
 | `src/Grib2.{h,cpp}` | Minimal GRIB2 reader: templates 3.30 (Lambert conformal, spherical earth, any scan mode but boustrophedon, `uvGridRelative` flag), 4.0/4.8, 5.0 (simple packing) + bitmap; `LambertGrid::project` (lon/lat → fractional i/j), `rotation(lon)` (grid → earth vector components), `Field::sample` (bilinear, NaN-aware). Pure C++ |
 | `src/CloudFields.h` | `CloudGrid` (default lon −81.2…−66.8, lat 35.55…45.75; `centredAt(lon, lat)` = the same 14.4°×10.2° box elsewhere; 576×408 cells of 0.025°, row 0 north) + `CloudLayer` (per layer: cover, base altitude, thickness, optical depth, wind per cell; summary: mean cover, altitude near the centre, mean wind) + `CloudFields` (total cover, raw base/top, 3 layers, `singleOpticalDepth` (step-1 look), run/valid time, `hasWind`/`hasCondensate`): the only weather type the renderer sees |
+| `src/Hdf5.{h,cpp}` | Minimal HDF5 / NetCDF-4 reader (GOES-R L2 files, step 3): superblock v2/3, v2 object headers + continuations, compact / dense links and attributes (fractal heap + v2 B-tree), integer / IEEE float (either byte order) / fixed string types, layout v3 (compact, contiguous, chunked with v1 B-tree index), shuffle + deflate (zlib-ng); `File::open` (whole file in memory, one bounds-checked reader), `read` (raw hyperslab, only the intersecting chunks decoded), `readValues` (CF: `_FillValue`, `valid_range`, `_Unsigned`, `scale_factor`/`add_offset` → float/double, NaN missing). Anything else = error. Pure C++ |
+| `src/NetcdfInspect.{h,cpp}` | Script command `netcdf url\|path [var…]`: fetch (accessor) / read, parse on a worker, log structure + decoded stats per file as one block, attributes at debug level, window-vs-full self-check of chunked 2D variables, PNGs of the named 2D variables (`Renderer::writePng`, main thread) |
 | `src/Ephemeris.{h,cpp}` | `sunDirectionEcef(unix s)` (low-precision solar coordinates + GMST), `elevationAzimuth`, `newYorkUtcOffsetHours` (EDT/EST). Pure C++ |
 | `src/GeoRef.{h,cpp}` | GEOID18 grid, tide-station MLLW↔NAVD88 offset, sea level, ECEF helpers |
 | `src/Vessels.{h,cpp}` | Procedural container ship / ferry / tug; ENU placement at sea-surface height |
@@ -125,7 +127,7 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 | `src/Log.{h,cpp}` | spdlog sinks (file, MSVC, console, counting), named loggers, `HR_OK`, HRESULT/Win32 text, UTF-8/UTF-16 |
 | `shaders/Scene.hlsl` | `VSMain/PSMain` (terrain + meshes), `VSSky/PSSky`, `VSWater/PSWater`, `PSClouds` (full-screen, with `VSSky`), `CSBlendClouds`, `CSCloudShadow`; time-of-day light (`SunColor`, `SkyLight`, `ImageryLight`), cloud functions (`LayerAmount`, `CloudTransmission`, `CloudShadow`, `TraceLayer`); cbuffers mirror `Renderer::FrameConstants/DrawConstants/CloudBlendConstants` |
 | `docs/weather_roadmap.md` | Weather / clouds roadmap: data facts (NOMADS, GRIB2, fields), steps 1–2 as built, steps 3–6 plan (GOES-19, volumetric, lighting) |
-| `scripts/build_deps.ps1` | Clone + build + install Cesium Native (both configs), copy earcut, clone Dear ImGui `v1.92.9b` → `third_party\imgui` (`-ImGuiOnly`: just that) |
+| `scripts/build_deps.ps1` | Clone + build + install Cesium Native (both configs), clone Dear ImGui `v1.92.9b` → `third_party\imgui`, `Copy-VcpkgHeaders` (earcut → `third_party\mapbox`, zlib-ng API → `third_party\zlib-ng`; the lib `zlibstatic-ng.lib` is installed with Cesium) (`-ImGuiOnly`: ImGui + the headers, seconds) |
 | `scripts/build.ps1` | MSBuild via vswhere (`-Config`, `-Rebuild`) |
 | `scripts/*.txt` | Harness scripts (see below) |
 
@@ -305,6 +307,13 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   scan 0x40); `Grib2` rejects anything else with an error — extend it, don't guess.
   Cloud base = lowest layer's base, cloud top = highest layer's top; per-layer bases are
   estimated per cell and filled by push-pull; heights in m above MSL (`navd88ToEllipsoid`).
+- GOES-19 L2 files (step 3) are NetCDF-4 with the newer HDF5 structures (superblock v2,
+  dense links / attributes, layout v3 chunks with a v1 B-tree, shuffle + deflate); the
+  `Hdf5` reader supports exactly that and rejects anything else with an error — extend it,
+  don't guess. Values outside `valid_range` are missing (CCLC `TCF` uses 65531 as a flag).
+  Keys: `ABI-L2-<product>/<year>/<day of year>/<hour>/OR_…_s<start>_e<end>_c<created>.nc`;
+  the bucket keeps every file (fixed keys replay forever). Unidata THREDDS cannot subset
+  them (NCSS / OPeNDAP fail on the unsigned types).
 - `CloudGrid` has fixed cell counts and span (14.4°×10.2°, ≈ 1200×1130 km, default around
   New York; request box ±0.4° larger, formatted with `%g` so the New York URLs stay
   cache-compatible; the filter clips the box to the HRRR domain — cells beyond it are
@@ -442,7 +451,8 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 **HTTP / cache**
 - 24 WinHTTP threads; host limits: elevation.nationalmap.gov 8, gis.ngdc.noaa.gov 8,
   server.arcgisonline.com 12, basemap.nationalmap.gov 8, tiles.openfreemap.org 6,
-  nomads.ncep.noaa.gov 2. 4 attempts on transport errors/429/5xx (300 ms × 2^n backoff).
+  nomads.ncep.noaa.gov 2, noaa-goes19.s3.amazonaws.com 4. 4 attempts on transport
+  errors/429/5xx (300 ms × 2^n backoff).
 - Disk cache `cache\<2 hex>\<fnv64>.bin` (URL verified on read), status 200 only;
   textual bodies are cached **except** for `exportImage` and `/cgi-bin/filter_` URLs
   (ArcGIS / NOMADS return errors as text). A `Cache-Control: no-cache` request header
@@ -455,7 +465,8 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   v143`, `VCPKG_VISUAL_STUDIO_PATH` = VS 2022, `EZVCPKG_BASEDIR=deps\ezvcpkg`, curl /
   tests / clang-tidy off. Dear ImGui sources compiled by the vcxproj (core +
   `imgui_impl_win32/dx11`; defines `IMGUI_DISABLE_OBSOLETE_FUNCTIONS;
-  IMGUI_IMPL_WIN32_DISABLE_GAMEPAD`; `CheckCesiumNative` also checks them).
+  IMGUI_IMPL_WIN32_DISABLE_GAMEPAD`; `CheckCesiumNative` also checks them and the
+  zlib-ng headers — missing ones: `build_deps.ps1 -ImGuiOnly`).
   **`CMAKE_INSTALL_PREFIX` must be set at configure time**
   (Cesium installs headers to the configure-time prefix). Layout: `deps\install\include`,
   `lib\` (Release), `debug\lib\` (Debug).
@@ -502,6 +513,7 @@ Script commands (one per line, `#` comments; live input is ignored while a scrip
 | `set sections on\|off` | open / close every section of the shown settings-panel tab (once, next frame) |
 | `tab view\|weather` | select a settings-panel tab |
 | `click x y`, `scroll x y notches`, `type text` / `type <enter>` | real window messages through `onMessage` (panel first, scene gets the rest); logs `After click/scroll: --camera …` |
+| `netcdf url\|path [variable …]` | log a NetCDF-4 file read with `Hdf5` (variables, decoded stats; attributes with `--verbose`) + PNGs of the named 2D variables in the shot dir; `wait` covers it |
 | `size WxH`, `sleep s`, `stats`, `log text`, `quit` | misc |
 
 Scripts: `regression.txt` (4 key views — run after every change), `shots_poi.txt`
@@ -523,7 +535,11 @@ file + `--hud 1` and shots the restored state; the log says `Settings: … N val
 `weather_center_test.txt` (the box moved to Boston from 20 km and the water, back to New
 York from the cache; needs the network once), `clouds_test.txt` (replays 2026-10-10/11 hours: water / overhead / 3 km, cumulus
 shadows on / off, each layer alone at 30 km, 10 min of drift, fog off, sunrise /
-sunset / night with the sun applied, the domain from 700 km, the Simple shell level (static over 10 min), live, keys 6 / 7 / 8).
+sunset / night with the sun applied, the domain from 700 km, the Simple shell level (static over 10 min), live, keys 6 / 7 / 8),
+`netcdf_test.txt` (the HDF5 reader on four GOES-19 L2 files of 2026-10-11 00:01 UTC from
+the S3 bucket, 9 MB once, then `--offline`; expected stats in its header — they equal an
+independent decode and the files' own summary variables; run with `--no-terrain
+--no-buildings --no-clouds`).
 Shots include the HUD and the panel (`--panel 0` / `set panel off` for clean scenes).
 
 Exit codes: 0 ok, 1 init failure, 2 bad arguments / `--help`, 3 a `wait` timed out; crash =
@@ -567,8 +583,9 @@ runs at ~15–30 fps while loading.
 
 - Weather: steps 1–2 of `docs\weather_roadmap.md` are done (HRRR low / middle / high
   shells at per-cell altitudes, wind drift, time blending, cheap cloud shadows, date /
-  time UI, sun at the weather time); next is step 3 (GOES-19 observed clouds), then
-  volumetric clouds and lighting.
+  time UI, sun at the weather time); step 3 (GOES-19 observed clouds) is in progress
+  (done: cloud quality combo, `Hdf5` reader; next: GOES fixed-grid navigation +
+  parallax, `GoesSource`, the blend), then volumetric clouds and lighting.
 
 - Known: no tides (sea at NAVD88 0); pier decks absent in bare-earth lidar; Esri
   imagery terms for production (USGS alternative is ~2 m); first visit to an area is

@@ -1433,7 +1433,16 @@ bool Renderer::saveScreenshot(const std::wstring& path) {
     }
   }
   _context->Unmap(staging.Get(), 0);
+  const bool ok = writePng(path, w, h, rgb.data());
+  if (ok) {
+    LOG_I("Screenshot saved: {}", Log::toUtf8(path));
+  } else {
+    LOG_E("Screenshot failed: {}", Log::toUtf8(path));
+  }
+  return ok;
+}
 
+bool Renderer::writePng(const std::wstring& path, uint32_t w, uint32_t h, const uint8_t* bgr) {
   std::error_code ec;
   std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
 
@@ -1442,21 +1451,14 @@ bool Renderer::saveScreenshot(const std::wstring& path) {
   ComPtr<IWICBitmapEncoder> encoder;
   ComPtr<IWICBitmapFrameEncode> frame;
   WICPixelFormatGUID format = GUID_WICPixelFormat24bppBGR;
-  const bool ok =
-      HR_OK(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))) &&
-      HR_OK(wic->CreateStream(&stream)) && HR_OK(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE)) &&
-      HR_OK(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) &&
-      HR_OK(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)) &&
-      HR_OK(encoder->CreateNewFrame(&frame, nullptr)) && HR_OK(frame->Initialize(nullptr)) &&
-      HR_OK(frame->SetSize(w, h)) && HR_OK(frame->SetPixelFormat(&format)) &&
-      HR_OK(frame->WritePixels(h, w * 3, UINT(rgb.size()), rgb.data())) && HR_OK(frame->Commit()) &&
-      HR_OK(encoder->Commit());
-  if (ok) {
-    LOG_I("Screenshot saved: {}", Log::toUtf8(path));
-  } else {
-    LOG_E("Screenshot failed: {}", Log::toUtf8(path));
-  }
-  return ok;
+  return HR_OK(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic))) &&
+         HR_OK(wic->CreateStream(&stream)) && HR_OK(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE)) &&
+         HR_OK(wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder)) &&
+         HR_OK(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache)) &&
+         HR_OK(encoder->CreateNewFrame(&frame, nullptr)) && HR_OK(frame->Initialize(nullptr)) &&
+         HR_OK(frame->SetSize(w, h)) && HR_OK(frame->SetPixelFormat(&format)) &&
+         HR_OK(frame->WritePixels(h, w * 3, w * h * 3, const_cast<BYTE*>(bgr))) && HR_OK(frame->Commit()) &&
+         HR_OK(encoder->Commit());
 }
 
 std::optional<glm::dvec3> Renderer::pickWorld(int x, int y, const Camera& camera) {

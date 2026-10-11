@@ -1,6 +1,7 @@
 # Dependency sources/builds (recreated by scripts\build_deps.ps1)
 deps/
 third_party/mapbox/
+third_party/zlib-ng/
 third_party/imgui/
 
 # Build output

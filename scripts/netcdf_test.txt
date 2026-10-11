@@ -1,0 +1,21 @@
+# NetCDF-4 / HDF5 reader (src/Hdf5.*, docs/weather_roadmap.md step 3): the
+# GOES-19 ABI Level-2 CONUS files of the 2026-10-11 00:01 UTC scan from the NOAA
+# open-data bucket, read through the HttpAssetAccessor (disk cache; the bucket
+# keeps every file, ~9 MB downloaded once), logged by the script command
+# `netcdf` (variables, attributes at --verbose, decoded statistics) with a PNG of
+# the named variables in the shot dir.
+# Run: TerrainPOC.exe --script ..\..\scripts\netcdf_test.txt --shot-dir ..\..\shots\netcdf --no-terrain --no-buildings --no-clouds
+# Expected (an independent decode and the files' own summary variables agree):
+#   ACHAC HT    107655 valid (= cloud_pixels), mean 7476.71 m (= mean_cloud_top_height), max 17265.4 m
+#   CCLC  TCF   75307 valid (65531 = a flag above valid_range -> missing), mean 0.285976, max 0.960007
+#   ACMC  BCM   3702837 valid (= total_number_of_cloud_mask_points), mean 0.63825; ACM mean 1.9421
+#   CODC  COD   2294108 valid, mean 5.65911, max 158.489
+#   x / y: the CONUS fixed grid, x -0.101332 .. 0.038612 rad, y 0.128212 .. 0.044268 rad (2 km)
+# Images: north up, the Earth's limb (missing, dark red) in the top-left corner,
+# no seams at the chunk boundaries (HT 262 rows, BCM 104, COD 52).
+netcdf https://noaa-goes19.s3.amazonaws.com/ABI-L2-ACHAC/2026/284/00/OR_ABI-L2-ACHAC-M6_G19_s20262840001181_e20262840003554_c20262840005328.nc HT
+netcdf https://noaa-goes19.s3.amazonaws.com/ABI-L2-CCLC/2026/284/00/OR_ABI-L2-CCLC-M6_G19_s20262840001181_e20262840003554_c20262840006071.nc TCF CF1 CF5
+netcdf https://noaa-goes19.s3.amazonaws.com/ABI-L2-ACMC/2026/284/00/OR_ABI-L2-ACMC-M6_G19_s20262840001181_e20262840003554_c20262840004304.nc BCM
+netcdf https://noaa-goes19.s3.amazonaws.com/ABI-L2-CODC/2026/284/00/OR_ABI-L2-CODC-M6_G19_s20262840001181_e20262840003554_c20262840005590.nc COD
+wait
+stats

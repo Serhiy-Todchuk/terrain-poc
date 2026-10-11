@@ -100,10 +100,12 @@
     <ClCompile Include="src\GeoRef.cpp" />
     <ClCompile Include="src\GltfBuilder.cpp" />
     <ClCompile Include="src\Grib2.cpp" />
+    <ClCompile Include="src\Hdf5.cpp" />
     <ClCompile Include="src\HttpAssetAccessor.cpp" />
     <ClCompile Include="src\Log.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\MvtReader.cpp" />
+    <ClCompile Include="src\NetcdfInspect.cpp" />
     <ClCompile Include="src\Renderer.cpp" />
     <ClCompile Include="src\RendererResources.cpp" />
     <ClCompile Include="src\Settings.cpp" />
@@ -146,9 +148,11 @@
     <ClInclude Include="src\GeoRef.h" />
     <ClInclude Include="src\GltfBuilder.h" />
     <ClInclude Include="src\Grib2.h" />
+    <ClInclude Include="src\Hdf5.h" />
     <ClInclude Include="src\HttpAssetAccessor.h" />
     <ClInclude Include="src\Log.h" />
     <ClInclude Include="src\MvtReader.h" />
+    <ClInclude Include="src\NetcdfInspect.h" />
     <ClInclude Include="src\Renderer.h" />
     <ClInclude Include="src\RendererResources.h" />
     <ClInclude Include="src\Settings.h" />
@@ -186,6 +190,8 @@
            Text="Cesium Native is not built for $(Configuration). Run once:  powershell -ExecutionPolicy Bypass -File scripts\build_deps.ps1" />
     <Error Condition="!Exists('$(ImGuiDir)imgui.cpp') Or !Exists('$(ImGuiDir)backends\imgui_impl_dx11.cpp')"
            Text="Dear ImGui sources are missing. Run once:  powershell -ExecutionPolicy Bypass -File scripts\build_deps.ps1 -ImGuiOnly" />
+    <Error Condition="!Exists('$(MSBuildThisFileDirectory)third_party\zlib-ng\zlib-ng.h')"
+           Text="The zlib-ng headers are missing. Run once:  powershell -ExecutionPolicy Bypass -File scripts\build_deps.ps1 -ImGuiOnly" />
   </Target>
   <!-- Link every static library produced by the dependency build (Cesium Native
        plus its vcpkg dependencies). Evaluated at build time so the list is

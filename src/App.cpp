@@ -5,6 +5,7 @@
 #include "Ephemeris.h"
 #include "GeoRef.h"
 #include "Log.h"
+#include "NetcdfInspect.h"
 #include "Settings.h"
 #include "TerrainLoader.h"
 
@@ -252,7 +253,8 @@ bool App::createTilesets() {
                             {"server.arcgisonline.com", 12},
                             {"basemap.nationalmap.gov", 8},
                             {"tiles.openfreemap.org", 6},
-                            {"nomads.ncep.noaa.gov", 2}}; // weather; NOMADS blocks clients over ~120 req/min
+                            {"nomads.ncep.noaa.gov", 2},  // weather; NOMADS blocks clients over ~120 req/min
+                            {"noaa-goes19.s3.amazonaws.com", 4}}; // GOES-19 satellite products
   _http = std::make_shared<HttpAssetAccessor>(httpOptions);
   _resources = std::make_shared<RendererResources>(_renderer.device());
   _credits = std::make_shared<CesiumUtility::CreditSystem>();
@@ -1253,6 +1255,15 @@ void App::stepScript(double dt) {
     } else {
       LOG_E("script[{}]: weather expects live, YYYYMMDDHH[MM] (UTC), -N (hours ago), here or center lon,lat|default",
             c.line);
+    }
+  } else if (c.verb == "netcdf") {
+    // netcdf <url|path> [variable ...] : log a NetCDF-4 file (HDF5 reader); PNGs
+    // of the named 2D variables in the shot dir. `wait` covers the download.
+    if (c.args.empty()) {
+      LOG_E("script[{}]: netcdf expects a URL or a file path (+ variables to draw)", c.line);
+    } else {
+      inspectNetcdf(_http, *_asyncSystem, arg(0), std::vector<std::string>(c.args.begin() + 1, c.args.end()),
+                    _cfg.shotDir);
     }
   } else if (c.verb == "log") {
     LOG_I("script note: {}", joinedArgs);

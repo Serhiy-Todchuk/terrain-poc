@@ -124,6 +124,9 @@ public:
   bool present(bool vsync);
 
   bool saveScreenshot(const std::wstring& path);
+  // Writes 24-bit BGR pixels (rows top-down, no padding) as a PNG (WIC; COM must
+  // be initialised on the calling thread: the main thread). Creates the folder.
+  static bool writePng(const std::wstring& path, uint32_t width, uint32_t height, const uint8_t* bgr);
   // Reads the depth buffer of the last rendered frame and reconstructs the
   // ECEF position under a pixel (nullopt for sky). Call outside a frame.
   std::optional<glm::dvec3> pickWorld(int x, int y, const Camera& camera);

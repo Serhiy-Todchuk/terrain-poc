@@ -124,10 +124,12 @@ dependency build — VS ships one).
 
    It clones Cesium Native, builds Debug + Release with Cesium's own vcpkg helper
    (toolset pinned to v143), installs headers/libs into `deps\install`
-   (`lib\` Release, `debug\lib\` Debug) and copies `earcut.hpp` to `third_party\`.
-   It also clones Dear ImGui (v1.92.9b) into `third_party\imgui` — its sources
-   are compiled by the app project. On an existing checkout, `build_deps.ps1
-   -ImGuiOnly` fetches just ImGui (seconds).
+   (`lib\` Release, `debug\lib\` Debug) and copies a few headers of Cesium's
+   vcpkg dependencies to `third_party\` (`earcut.hpp`; the zlib-ng API, used by
+   the HDF5 reader). It also clones Dear ImGui (v1.92.9b) into
+   `third_party\imgui` — its sources are compiled by the app project. On an
+   existing checkout, `build_deps.ps1 -ImGuiOnly` fetches just ImGui and copies
+   the headers again (seconds).
 
 2. Open `TerrainPOC.sln` and build x64 Debug/Release (or
    `powershell -ExecutionPolicy Bypass -File scripts\build.ps1 -Config Release`).
@@ -226,6 +228,7 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   | `set sections on\|off` | open / close every section of the shown settings-panel tab (once) |
   | `tab view\|weather` | select a settings-panel tab |
   | `click x y`, `scroll x y notches`, `type text` / `type <enter>` | real window messages (panel first, then the scene) |
+  | `netcdf url\|path [variable …]` | log a NetCDF-4 / HDF5 file (variables, decoded statistics) and save PNGs of the named 2D variables (developer tool for the GOES-19 data) |
   | `size WxH`, `sleep s`, `stats`, `log text`, `quit` | misc |
 
   Included: `scripts\shots_poi.txt` (POI views incl. 1 m contours on land and
@@ -242,7 +245,8 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   needs the network once), `clouds_test.txt` (cloud layers from below / 3 km /
   30 km, each layer alone, shadows on / off, 10 minutes of drift, fog off,
   sunrise / sunset / night, the weather domain, the simple shell level, live),
-  `regression.txt`.
+  `netcdf_test.txt` (the HDF5 reader on four GOES-19 cloud products from the
+  NOAA bucket; expected values in its header), `regression.txt`.
   Screenshots include the HUD and the panel (`--hud 0`, `--panel 0` or
   `set panel off` for clean scene shots). The clouds are the live weather unless
   `--weather-time` / `weather` pins a time (`--no-clouds` or `set clouds off`
@@ -302,6 +306,6 @@ src/          application sources
 shaders/      Scene.hlsl
 scripts/      build_deps.ps1, build.ps1, harness scripts
 docs/         weather_roadmap.md (live weather / clouds plan and status)
-third_party/  earcut.hpp, imgui/ (fetched by build_deps.ps1)
+third_party/  mapbox/earcut.hpp, zlib-ng/, imgui/ (fetched / copied by build_deps.ps1)
 deps/         Cesium Native source, build and install (generated)
 ```

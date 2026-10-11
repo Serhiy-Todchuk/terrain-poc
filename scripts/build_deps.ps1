@@ -9,7 +9,9 @@
   TerrainPOC.vcxproj consumes.
 
   It also fetches Dear ImGui (sources compiled directly by the app project) into
-  third_party\imgui; -ImGuiOnly does just that (seconds, no Cesium rebuild).
+  third_party\imgui and copies a few headers of Cesium Native's vcpkg
+  dependencies (earcut, zlib-ng) into third_party; -ImGuiOnly does just these
+  two (seconds, no Cesium rebuild).
 
   Usage (from any PowerShell prompt):
       powershell -ExecutionPolicy Bypass -File scripts\build_deps.ps1 [-Configs Debug,Release] [-ImGuiOnly]
@@ -34,6 +36,28 @@ New-Item -ItemType Directory -Force $Deps, $Triplets | Out-Null
 
 function Step($msg) { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }
 
+# Headers of private Cesium Native dependencies the app uses directly, copied
+# from the vcpkg tree into third_party: earcut.hpp (building roofs) and the
+# zlib-ng API (deflate in the HDF5 reader; the library is installed with Cesium
+# Native as zlibstatic-ng.lib).
+function Copy-VcpkgHeaders {
+    $include = Get-ChildItem (Join-Path $Deps "ezvcpkg\*\installed\x64-windows-static-md\include") -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $include) { Write-Warning "vcpkg tree not found in $Deps\ezvcpkg (build Cesium Native first)"; return }
+    $headers = [ordered]@{
+        "mapbox\earcut.hpp"       = "mapbox\earcut.hpp"
+        "zlib-ng.h"               = "zlib-ng\zlib-ng.h"
+        "zconf-ng.h"              = "zlib-ng\zconf-ng.h"
+        "zlib_name_mangling-ng.h" = "zlib-ng\zlib_name_mangling-ng.h"
+    }
+    foreach ($name in $headers.Keys) {
+        $from = Join-Path $include.FullName $name
+        if (-not (Test-Path $from)) { Write-Warning "$name not found in $($include.FullName)"; continue }
+        $to = Join-Path $ThirdParty $headers[$name]
+        New-Item -ItemType Directory -Force (Split-Path $to) | Out-Null
+        Copy-Item $from $to -Force
+    }
+}
+
 # --- Dear ImGui (UI panel) -----------------------------------------------------
 # Plain sources (core + Win32/DX11 backends) compiled by TerrainPOC.vcxproj.
 $ImGui = Join-Path $ThirdParty "imgui"
@@ -45,7 +69,11 @@ if (-not (Test-Path $imguiTagFile) -or (Get-Content $imguiTagFile -Raw).Trim() -
     if ($LASTEXITCODE -ne 0) { throw "git clone imgui failed" }
     Set-Content -Encoding ascii $imguiTagFile $ImGuiTag
 }
-if ($ImGuiOnly) { Step "Done (Dear ImGui $ImGuiTag in $ImGui)"; exit 0 }
+if ($ImGuiOnly) {
+    Copy-VcpkgHeaders # also refreshes the headers of an existing dependency build
+    Step "Done (Dear ImGui $ImGuiTag in $ImGui)"
+    exit 0
+}
 
 # --- Tools -------------------------------------------------------------------
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
@@ -117,15 +145,7 @@ foreach ($cfg in $Configs) {
     if ($LASTEXITCODE -ne 0) { throw "cmake install ($cfg) failed" }
 }
 
-# earcut.hpp (polygon triangulation, used for building roofs) is a private
-# Cesium Native dependency; copy the header from the vcpkg tree.
-$earcut = Get-ChildItem (Join-Path $env:EZVCPKG_BASEDIR "*\installed\x64-windows-static-md\include\mapbox\earcut.hpp") -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($earcut) {
-    New-Item -ItemType Directory -Force (Join-Path $ThirdParty "mapbox") | Out-Null
-    Copy-Item $earcut.FullName (Join-Path $ThirdParty "mapbox\earcut.hpp") -Force
-} else {
-    Write-Warning "earcut.hpp not found in the vcpkg tree"
-}
+Copy-VcpkgHeaders
 
 Step "Done"
 foreach ($cfg in $Configs) {
