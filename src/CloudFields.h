@@ -57,6 +57,10 @@ struct CloudFields {
   std::vector<float> cover;     // total cloud cover, 0..1
   std::vector<float> base, top; // the source's cloud base / top height (m above MSL); NaN where undefined
   std::array<CloudLayer, kCloudLayerCount> layers; // low / middle / high
+  // The single layer of the step-1 look ("Single layer" toggle): the total cover
+  // at layerAltitude with this in-cloud optical depth (step 1's heuristic: water
+  // layers 3 + 4 per km of thickness, ice 1, mixed by the layer covers).
+  std::vector<float> singleOpticalDepth;
 
   std::string source;           // e.g. "HRRR"
   int64_t cycle = 0;            // model run / observation time (unix seconds, UTC)

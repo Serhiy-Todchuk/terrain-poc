@@ -100,7 +100,7 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 |---|---|
 | `src/main.cpp` | Entry; default paths (log/cache/shaders next to exe); DPI awareness; COM; crash handler (symbolized DbgHelp stack + `TerrainPOC_crash.dmp`); terminate/abort handlers; Debug CRT report hook (asserts → log, continue) |
 | `src/App.{h,cpp}` | Window/message loop, tileset + overlay creation and options, weather service, `weatherTime`/`setWeatherTime`, `updateSun` (fixed sun or `Ephemeris` at the weather time), `updateClouds` (bracket → GPU datasets, cross-fade + snapshot, per-layer drift and noise phases → `SceneSettings::cloud`), frame update, mouse/keyboard navigation (panel-vs-scene input routing in `onMessage`), script harness (`stepScript`, `computeIdle`, `takeScreenshot`, `injectMessage`), HUD lines (`weatherHudLines`), `logStats`, shutdown order |
-| `src/AppPanel.cpp` | `App::drawPanel` (header row with the hide arrow, tab bar) + `drawPanelArrows` (HUD / panel hide-show arrows, `_hudInset`) + `section` (collapsing header with persisted open state) + `panelLayers/Rendering/Camera/Detail/Tools` (tab **View**: toggles with key hints, MSAA combo, fog, vsync, water absorption, contour interval, view presets `kViews`, go-to / copy `--camera`, FOV, fly speed, live terrain/buildings SSE, screenshot, shader reload, log stats) + `panelWeather/History/Sources` (tab **Time & weather**: Now, date combo of days with data + ◀ ▶, time slider over the day's hours with data, ±1 h, Apply to sun, cloud shadows, Low/Mid/High; history / forecast table of `WeatherService::catalog()` ±24/48/72 h with a row pinning the time; HRRR facts, catalog / newest run / forecast reach, loaded datasets, status); `currentSettings()` (in App.cpp) = the persisted state; changes logged as `Settings panel: …` |
+| `src/AppPanel.cpp` | `App::drawPanel` (header row with the hide arrow, tab bar) + `drawPanelArrows` (HUD / panel hide-show arrows, `_hudInset`) + `section` (collapsing header with persisted open state) + `panelLayers/Rendering/Camera/Detail/Tools` (tab **View**: toggles with key hints, MSAA combo, fog, vsync, water absorption, contour interval, view presets `kViews`, go-to / copy `--camera`, FOV, fly speed, live terrain/buildings SSE, screenshot, shader reload, log stats) + `panelWeather/History/Sources` (tab **Time & weather**: Now, date combo of days with data + ◀ ▶, time slider over the day's hours with data, ±1 h, Apply to sun, cloud shadows, Low/Mid/High, Single layer (step-1 look); history / forecast table of `WeatherService::catalog()` ±24/48/72 h with a row pinning the time; HRRR facts, catalog / newest run / forecast reach, loaded datasets, status); `currentSettings()` (in App.cpp) = the persisted state; changes logged as `Settings panel: …` |
 | `src/Settings.{h,cpp}` | Persisted UI settings `TerrainPOC.ini` (next to the exe; `--settings file`, `--no-settings`): `Settings::load` (key=value lines into an `AppConfig`, before the command line is applied over it — main.cpp parses argv twice) and `Settings::save` (at `App::shutdown` when `cfg.settingsActive`). The key table lists every persisted field: toggles, MSAA, vsync, tunables, HUD / panel / tab / sections bitmask, history range, window size — not the weather time, not the camera. Harness runs never touch it unless `--settings` is given explicitly |
 | `src/Ui.{h,cpp}` | Dear ImGui plumbing: context (`IniFilename` null), Win32 + DX11 backends, Segoe UI 15 px (fallback: built-in font), dark translucent style, `setScale` (DPI: `ScaleAllSizes` + `FontScaleDpi`), `processMessage`, `wantsMouse/Keyboard`, `newFrame(inputEnabled)` / `endFrame` / `render` |
 | `src/Config.{h,cpp}` | `AppConfig` defaults (incl. the persisted-only fields `imageryOn`, `contourInterval`, `cloudLayers`, `historyHours`, `flySpeed`, `panelTab`, `panelSections`), CLI parsing over a base config, `--help` text, `parseCameraSpec` |
@@ -111,11 +111,11 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 | `src/MvtReader.{h,cpp}` | Minimal MVT v2 / protobuf decoder (layers, keys/values, polygons with holes; exterior = positive area in tile coords) |
 | `src/GltfBuilder.{h,cpp}` | `GltfMeshBuilder`: one-primitive glTF (Z-up extras, POSITION min/max, NORMAL, COLOR_0 u8 normalized, scalar / vec2 custom attributes, u16/u32 indices) |
 | `src/RendererResources.{h,cpp}` | `GpuVertex` (32 B) + `packNormalWater`, glTF→GPU conversion (`forEachPrimitiveInScene`, RTC/up-axis; `_FACADE` → `isBuilding`), raster textures (+CPU mips), GPU stats |
-| `src/Renderer.{h,cpp}` | D3D11 device/flip swapchain, sRGB RTV + UNORM UI RTV (`bindUiTarget`), MSAA scene target + `resolveScene`, R32 depth (DSV + read-only DSV + SRV), pipelines/states, runtime shader compile (`MSAA_SAMPLES` define), `drawTiles` (overlay mapping), water ring mesh, clouds (`createCloudTexture` = fields + wind textures, `blendClouds` = CSBlendClouds → the blended field + the noise drift texture, `renderCloudShadows` = CSCloudShadow with a change key, `snapshotClouds`, `drawClouds`, sphere / cloud constants and time-of-day sky colours (`skyColours`) in `beginFrame`), D2D/DWrite HUD (`setHudScale`), WIC PNG screenshot, `pickWorld` (compute-shader depth read), roof imagery capture (`updateRoofImagery`) |
+| `src/Renderer.{h,cpp}` | D3D11 device/flip swapchain, sRGB RTV + UNORM UI RTV (`bindUiTarget`), MSAA scene target + `resolveScene`, R32 depth (DSV + read-only DSV + SRV), pipelines/states, runtime shader compile (`MSAA_SAMPLES` define), `drawTiles` (overlay mapping), water ring mesh, clouds (`createCloudTexture` = fields (+ the step-1 single layer as slice 3) + wind textures, `blendClouds` = CSBlendClouds → the blended field + the noise drift texture, `renderCloudShadows` = CSCloudShadow with a change key, `snapshotClouds`, `drawClouds`, sphere / cloud constants and time-of-day sky colours (`skyColours`) in `beginFrame`), D2D/DWrite HUD (`setHudScale`), WIC PNG screenshot, `pickWorld` (compute-shader depth read), roof imagery capture (`updateRoofImagery`) |
 | `src/HttpAssetAccessor.{h,cpp}` | WinHTTP `IAssetAccessor`: queue with per-host limits, retries/backoff, logging, disk cache (request header `Cache-Control: no-cache` bypasses it), `isCached(url)` (header probe, thread-safe), `--offline`, stats, `shutdown()` |
 | `src/WeatherService.{h,cpp}` | Live clouds: weather time (live / pinned to the minute), catalog of available hours (NOMADS top-level day list + day file lists, disk-cache probe), needed hours around the time, one fetch at a time (clouds + dynamics requests), `bracket(t)`, `activity()` for HUD/stats, `catalog()` (per available hour: run, listed / cached / loaded, `HourSummary` of every dataset seen this session) + `newestRun()` for the panel, `setGrid` (the weather box moved: datasets / summaries / cache catalog dropped, re-probed; `_generation` discards in-flight results of the old box), `parseTime` (`YYYYMMDDHH[MM]` / `-N`); `HrrrSource` (filter URLs, list/day parsers, `decode` = GRIB2 → bilinear resample to `CloudGrid`, layer winds per cell (grid → earth rotation; the mean near the centre for the HUD / change key), per-layer altitude/thickness (push-pull `fillGaps`, `boxBlur`), optical depth, summary) |
 | `src/Grib2.{h,cpp}` | Minimal GRIB2 reader: templates 3.30 (Lambert conformal, spherical earth, any scan mode but boustrophedon, `uvGridRelative` flag), 4.0/4.8, 5.0 (simple packing) + bitmap; `LambertGrid::project` (lon/lat → fractional i/j), `rotation(lon)` (grid → earth vector components), `Field::sample` (bilinear, NaN-aware). Pure C++ |
-| `src/CloudFields.h` | `CloudGrid` (default lon −81.2…−66.8, lat 35.55…45.75; `centredAt(lon, lat)` = the same 14.4°×10.2° box elsewhere; 576×408 cells of 0.025°, row 0 north) + `CloudLayer` (per layer: cover, base altitude, thickness, optical depth, wind per cell; summary: mean cover, altitude near the centre, mean wind) + `CloudFields` (total cover, raw base/top, 3 layers, run/valid time, `hasWind`/`hasCondensate`): the only weather type the renderer sees |
+| `src/CloudFields.h` | `CloudGrid` (default lon −81.2…−66.8, lat 35.55…45.75; `centredAt(lon, lat)` = the same 14.4°×10.2° box elsewhere; 576×408 cells of 0.025°, row 0 north) + `CloudLayer` (per layer: cover, base altitude, thickness, optical depth, wind per cell; summary: mean cover, altitude near the centre, mean wind) + `CloudFields` (total cover, raw base/top, 3 layers, `singleOpticalDepth` (step-1 look), run/valid time, `hasWind`/`hasCondensate`): the only weather type the renderer sees |
 | `src/Ephemeris.{h,cpp}` | `sunDirectionEcef(unix s)` (low-precision solar coordinates + GMST), `elevationAzimuth`, `newYorkUtcOffsetHours` (EDT/EST). Pure C++ |
 | `src/GeoRef.{h,cpp}` | GEOID18 grid, tide-station MLLW↔NAVD88 offset, sea level, ECEF helpers |
 | `src/Vessels.{h,cpp}` | Procedural container ship / ferry / tug; ENU placement at sea-surface height |
@@ -313,8 +313,9 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   `Renderer::setCloudGrid` (shadow map + snapshot invalidated) + the GPU slots dropped. The
   URLs name the box, so each box has its own cached datasets; the camera must be inside
   lon −121…−71, lat 27…47 (a margin inside the HRRR CONUS Lambert domain). The summaries
-  (`altitudeNearPoi`, winds, dominant layer) are about the box centre. Per dataset an immutable 3-slice RGBA16F array
-  (cover, base km, optical depth, thickness km) + a 3-slice RG16F array (the layer wind
+  (`altitudeNearPoi`, winds, dominant layer) are about the box centre. Per dataset an immutable 4-slice RGBA16F array
+  (low / middle / high + the single layer: cover, base km, optical depth, thickness km)
+  + a 3-slice RG16F array (the layer wind
   per cell, m/s east / north). `CSBlendClouds` (every frame with clouds on) blends the
   two datasets of `WeatherService::bracket` by time with per-cell motion compensation
   (semi-Lagrangian: each cell reads where its air was at the dataset's valid time, a
@@ -325,6 +326,14 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   idle (no partial states, no fade for the first data, none at the hour roll-over);
   during a fade of the same hours the replaced datasets stay alive (`_cloudOldA/B`)
   and their wind fields glide into the new ones (`CloudFrame::glide`, no jump).
+- **Single layer** (the step-1 look, key `8`, `set cloudsingle`, `--single-cloud-layer`,
+  persisted `weather.cloud_single`): emulated on the step-2 pipeline, the step-1 code is
+  gone. Slice 3 of each dataset = TCDC at the dataset's `layerAltitude` (uniform), step 1's
+  τ heuristic (`CloudFields::singleOpticalDepth`), 100 m thick; `CloudFrame::single` →
+  `CSBlendClouds` copies it into slice 0 (`gBlendTimes.w`), the app passes no drift, zero
+  noise seeds and layers (1, 0, 0); the shaders (`gCloudMisc.w`) use one noise phase, the
+  14 km wavelength, no envelope, no side samples. The fields still blend in time; shadows /
+  sun stay separate toggles. Differences from step 1 as built: `docs\weather_roadmap.md`.
 - Noise: two phases (seeded per valid hour + layer, drifting per cell with their
   dataset's wind field through `gCloudDrift`), variance-preserving blend by the time
   weight; mean-preserving soft threshold whose width grows with the footprint (no
@@ -405,15 +414,17 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 - DPI: `GetDpiForWindow` at start and `WM_DPICHANGED` → `App::setUiScale`
   (ImGui style/font + HUD font). Vessels and the weather service are always created
   (toggles work after `--no-vessels` / `--no-clouds`); Imagery/Buildings rows are
-  disabled when not created. Keys: `6` clouds, `7` cloud shadows, `L` Apply to sun,
+  disabled when not created. Keys: `6` clouds, `7` cloud shadows, `8` single layer, `L` Apply to sun,
   `O` fog. Default layout at 1600×900 (panel_test.txt relies on it): header arrow
   (1572, 27), tabs y 54 (View x 1320, Time & weather x 1390). View tab: Layers
   rows y 106…262 (Water 184, Clouds 236), Rendering 288 (Fog 340), Camera header
   496 (Jamaica Bay 600, go-to 657 when open), LOD 522, Tools 548. Time & weather
   tab: Now (1319, 105), date ◀ / ▶ 131, −1h / slider / +1h 157, Apply to sun 184,
-  Cloud shadows 210, Low/Mid/High 236, History header 262 (range combo (1330, 288),
-  items 313 / 333 / 353, table header 313, rows every 19 px from 324 with the
-  current hour centred ≈ 400), Sources 511. x of the checkboxes 1312. HUD arrow
+  Cloud shadows 210, Low/Mid/High 236, Single layer 262, History header 288 (range
+  combo (1330, 314), items 339 / 359 / 379, table header 339, rows every 19 px from
+  350 with the current hour centred ≈ 426 — lower when the scroll is clamped near the
+  newest hours: the next row is hit at y 449 either way), Sources 537. x of the
+  checkboxes 1312. HUD arrow
   (19, 20); hidden stubs: HUD (17, 16), panel (1580, 16).
 - Weather time controls: the date combo lists the days of
   `WeatherService::availableHours()` (± the shown day), the slider covers that day's
@@ -456,7 +467,7 @@ CLI: `--camera lon,lat,alt,heading,pitch` | `--lookat lon,lat,alt,heading,pitch,
 `--verbose` (`[D]` lines: every request, tile summaries), `--d3d-debug` (needs the *Graphics Tools* Windows
 feature — not installed on the dev machine), `--hud 0|1`, `--panel 0|1`, `--size WxH`, layer flags
 (`--no-terrain/--no-buildings/--no-water/--no-vessels/--no-clouds`, `--contours`, `--wireframe`,
-`--imagery esri|usgs|none`, `--no-facades`, `--no-fog`, `--no-cloud-shadows`), `--msaa 1|2|4|8`,
+`--imagery esri|usgs|none`, `--no-facades`, `--no-fog`, `--no-cloud-shadows`, `--single-cloud-layer`), `--msaa 1|2|4|8`,
 LOD tunables (`--terrain-sse`, `--terrain-max-level`, `--terrain-grid`, `--buildings-sse`,
 `--imagery-sse`), `--water-clarity`, `--shader-dir`, weather (`--weather-time
 YYYYMMDDHH[MM]|-N|live` = replay / forecast at that UTC time, `--apply-sun` = the sun at
@@ -476,7 +487,7 @@ Script commands (one per line, `#` comments; live input is ignored while a scrip
 | `shot name` | renders a fresh frame (with HUD) and saves `<shot-dir>/name.png` |
 | `drag left\|right x0 y0 x1 y1 [steps]` | synthetic orbit / pan through the real handlers |
 | `wheel x y notches` | synthetic zoom towards a pixel (logs the new `--camera`) |
-| `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off`, `key K` | toggles (`msaa on` = configured count, 4x if started with `--msaa 1`; `sun` = Apply to sun); `key` calls `keyCommand` directly |
+| `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|cloudsingle\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off`, `key K` | toggles (`msaa on` = configured count, 4x if started with `--msaa 1`; `sun` = Apply to sun); `key` calls `keyCommand` directly |
 | `weather live\|YYYYMMDDHH[MM]\|-N` | the weather time: live / a UTC time to the minute / N hours ago (replay or forecast; cross-fades) |
 | `weather here`, `weather center lon,lat\|default` | move the weather box to the camera (inside the HRRR domain) / a point / back to New York |
 | `set sections on\|off` | open / close every section of the shown settings-panel tab (once, next frame) |
@@ -493,7 +504,7 @@ views MSAA off/on, wireframe, resize, picking on MS depth), `facades_test.txt`
 (plain vs façades: POI, Sunset Park, roofs from above, Lower Manhattan),
 `panel_test.txt` (settings panel, run `--offline`: click Water ×2 and Clouds ×2 with
 unchanged camera, Fog ×2, the Time & weather tab: next day with data / −1 h / Apply to
-sun / Now, history table row + ±72 h range, wheel over panel = no zoom / over scene =
+sun / Now, single layer on / off, history table row + ±72 h range, wheel over panel = no zoom / over scene =
 zoom, Camera header + view button, typed go-to with digits not toggling layers, all
 sections of both tabs, script toggles shown, hide / show arrows of both panels, G hides,
 1280×720 no overlap — pixel positions assume 1600×900 and the default layout, see UI),
@@ -503,7 +514,7 @@ file + `--hud 1` and shots the restored state; the log says `Settings: … N val
 `weather_center_test.txt` (the box moved to Boston from 20 km and the water, back to New
 York from the cache; needs the network once), `clouds_test.txt` (replays 2026-10-10/11 hours: water / overhead / 3 km, cumulus
 shadows on / off, each layer alone at 30 km, 10 min of drift, fog off, sunrise /
-sunset / night with the sun applied, the domain from 700 km, live, keys 6 / 7).
+sunset / night with the sun applied, the domain from 700 km, the single layer (static over 10 min), live, keys 6 / 7 / 8).
 Shots include the HUD and the panel (`--panel 0` / `set panel off` for clean scenes).
 
 Exit codes: 0 ok, 1 init failure, 2 bad arguments / `--help`, 3 a `wait` timed out; crash =

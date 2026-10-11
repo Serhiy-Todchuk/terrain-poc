@@ -130,6 +130,7 @@ bool App::init() {
   for (int l = 0; l < kCloudLayerCount; ++l) {
     _cloudLayerOn[l] = _cfg.cloudLayers[l];
   }
+  _cloudSingle = _cfg.cloudSingle;
   _flySpeed = _cfg.flySpeed;
   _historyHours = _cfg.historyHours;
   _panelTab = std::clamp(_cfg.panelTab, 0, 1);
@@ -608,6 +609,17 @@ void App::updateClouds() {
     cf.noiseB[l] = glm::vec2(noiseSeed(_cloudB.fields ? _cloudB.fields->validTime : _cloudA.fields->validTime, l));
     cf.layer[l] = _cloudLayerOn[l];
   }
+  // The step-1 look: the single layer (slice 0) with static shapes - no drift,
+  // one fixed noise pattern; the fields still blend in time (without motion).
+  cf.single = _cloudSingle;
+  if (_cloudSingle) {
+    cf.driftA = cf.driftB = 0.0f;
+    for (int l = 0; l < kCloudLayerCount; ++l) {
+      cf.meanDriftA[l] = cf.meanDriftB[l] = glm::vec2(0.0f);
+      cf.noiseA[l] = cf.noiseB[l] = glm::vec2(0.0f);
+      cf.layer[l] = l == 0;
+    }
+  }
   cf.manualAltitude = _cloudAltitude;
   _scene.clouds = true;
 }
@@ -836,6 +848,7 @@ void App::keyCommand(int vk) {
   case '5': _showVessels = !_showVessels; break;
   case '6': _showClouds = !_showClouds; break;
   case '7': _scene.cloudShadows = !_scene.cloudShadows; break;
+  case '8': _cloudSingle = !_cloudSingle; break;
   case 'L': _sunFromTime = !_sunFromTime; updateSun(); break;
   case 'O': _scene.fog = !_scene.fog; break;
   case 'C': _scene.contours = !_scene.contours; break;
@@ -985,6 +998,7 @@ bool App::setOption(const std::string& name, bool value) {
   else if (name == "cloudlow") _cloudLayerOn[0] = value;
   else if (name == "cloudmid") _cloudLayerOn[1] = value;
   else if (name == "cloudhigh") _cloudLayerOn[2] = value;
+  else if (name == "cloudsingle") _cloudSingle = value;
   else if (name == "sun") { _sunFromTime = value; updateSun(); }
   else if (name == "fog") _scene.fog = value;
   else if (name == "water") _scene.water = value;
@@ -1258,6 +1272,7 @@ AppConfig App::currentSettings() const {
   for (int l = 0; l < kCloudLayerCount; ++l) {
     c.cloudLayers[l] = _cloudLayerOn[l];
   }
+  c.cloudSingle = _cloudSingle;
   c.historyHours = _historyHours;
   c.weatherCenter = _weatherCenter;
   c.facades = _scene.facades;
@@ -1369,6 +1384,13 @@ std::vector<std::wstring> App::weatherHudLines() const {
     data += " -> " + hour(b) + " " + std::to_string(int(std::lround(w * 100.0))) + " %";
   }
   lines.push_back(wformat("clouds    %s%s%s", data.c_str(), activity.empty() ? "" : " | ", activity.c_str()));
+  if (_cloudSingle) {
+    const double altitude = _cloudAltitude >= 0.0 ? _cloudAltitude : glm::mix(a.layerAltitude, b.layerAltitude, w);
+    const std::string from = _cloudAltitude >= 0.0 ? "manual altitude" : a.layerName + " layer seen from below";
+    lines.push_back(wformat("layers    single (step-1 look): total cover %.0f %% at %.1f km (%s), static shapes",
+                            glm::mix(a.meanCover, b.meanCover, w) * 100.0, altitude / 1000.0, from.c_str()));
+    return lines;
+  }
   std::string layers;
   const char* names[kCloudLayerCount] = {"low", "mid", "high"};
   for (int l = 0; l < kCloudLayerCount; ++l) {

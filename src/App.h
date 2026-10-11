@@ -141,6 +141,7 @@ private:
 
   bool _showTerrain = true, _showBuildings = true, _showVessels = true, _showClouds = true;
   bool _cloudLayerOn[3] = {true, true, true}; // low / middle / high
+  bool _cloudSingle = false;     // the step-1 look: one static shell, the total cover at the dominant layer's altitude
   double _cloudAltitude = -1.0;  // all layers at this altitude (m MSL, --cloud-altitude); < 0: per-cell HRRR
   bool _sunFromTime = false;     // "Apply to sun": the sun (and the time-of-day light) at the weather time
   std::optional<std::pair<double, double>> _weatherCenter; // the weather box centre; nullopt = New York

@@ -29,7 +29,8 @@ cbuffer FrameConstants : register(b0)
                            // w: MSL -> height above the sphere (geoid, m)
     float4   gCloudLayerOn; // xyz: layer low / middle / high drawn (1/0), w: manual altitude (m MSL, < 0: per cell)
     float4   gCloudNoise[3]; // per layer: xy noise seed of phase a, zw of phase b (km east / north)
-    float4   gCloudMisc;   // x: weight of phase b, y: cloud shadows on, z: clouds on
+    float4   gCloudMisc;   // x: weight of phase b, y: cloud shadows on, z: clouds on,
+                           // w: single layer (the step-1 look: slice 0 only, a thin shell, static noise)
 };
 
 cbuffer DrawConstants : register(b1)
@@ -169,7 +170,9 @@ float3 ApplyFog(float3 color, float3 viewPos)
 // grid shapes from procedural noise in two phases that drift with the layer
 // wind field (one phase per dataset of the time blend; the per-cell drift comes
 // from gCloudDrift). The same functions shade the ground (cheap cloud shadows)
-// and the cloud pass (PSClouds).
+// and the cloud pass (PSClouds). Single layer (gCloudMisc.w, the step-1 look):
+// slice 0 holds the total cover at one altitude, drawn as a thin shell with one
+// static noise phase (no drift, no vertical envelope); slices 1-2 are off.
 
 uint PcgHash(uint v)
 {
@@ -230,6 +233,7 @@ float CloudNoise(float2 p, float fp, int octaves, out float removed)
 }
 
 static const float kLayerWavelength[3] = { 9.0, 14.0, 24.0 }; // km: base wavelength of the shapes per layer
+static const float kSingleWavelength = 14.0;                  // km: the single layer (step 1: 14 ... 0.45 km)
 
 // Geodetic lon/lat (rad) of an ECEF position and its CloudGrid uv.
 float2 CloudGridUv(float3 ecef, out float2 lonLat)
@@ -310,7 +314,7 @@ struct CloudAmount
 
 CloudAmount LayerAmount(int layer, float cover, float2 uv, float2 km, float fpKm, int octaves, float shift)
 {
-    float lambda = kLayerWavelength[layer];
+    float lambda = gCloudMisc.w > 0.5 ? kSingleWavelength : kLayerWavelength[layer];
     float fp = fpKm / lambda;
     float wb = gCloudMisc.x;
     float4 drift = gCloudDrift.SampleLevel(gLinearClamp, float3(uv, layer), 0.0);
@@ -953,13 +957,14 @@ float4 PSClouds(SkyOut i, out float depthOut : SV_Depth) : SV_Target
             float thickness = span.hTop - span.hBase;
             float len = span.t1 - tEntry;
             float ratio = len / thickness; // path length in slab thicknesses (1: straight through)
-            float shape = kLayerShape[l];
+            bool single = gCloudMisc.w > 0.5; // the step-1 shell: no vertical envelope, no side samples
+            float shape = single ? 0.0 : kLayerShape[l];
             float zMid = saturate((HeightAt(tMid, b) - span.hBase) / thickness);
             CloudAmount a = LayerAmount(l, cover, uvMid, kmMid, fpKm, 6, shape * (0.5 - zMid));
             float amount = a.amount, density = a.density, first = tEntry;
             // Oblique rays and rays from inside the layer: two more samples near
             // the entry and the exit (blended in with the obliqueness).
-            float w = saturate(ratio - 1.5);
+            float w = single ? 0.0 : saturate(ratio - 1.5);
             [branch] if (w > 0.0)
             {
                 float tA = tEntry + 0.12 * len, tB = tEntry + 0.88 * len;
@@ -1062,7 +1067,8 @@ RWTexture2DArray<float4> gDriftOut      : register(u3);
 cbuffer CloudBlendConstants : register(b2)
 {
     float4 gBlendParams; // x: weight of b, y: fade from the snapshot, zw: 1 / texture size
-    float4 gBlendTimes;  // x: drift time of a (s), y: of b, z: wind glide (old -> new datasets)
+    float4 gBlendTimes;  // x: drift time of a (s), y: of b, z: wind glide (old -> new datasets),
+                         // w: single layer (slice 0 <- the datasets' slice 3; the app passes no drift)
     float4 gBlendGrid;   // x: north (rad), y: lat span (rad), z: 1 / (R lon span), w: 1 / (R lat span)
 };
 
@@ -1103,8 +1109,9 @@ void CSBlendClouds(uint3 id : SV_DispatchThreadID)
     float2 ub = uv - WindUv(wb, gBlendTimes.y, uv);
     wb = BlendWindB(ub, id.z);
     ub = uv - WindUv(wb, gBlendTimes.y, uv);
-    float4 a = gBlendA.SampleLevel(gLinearClamp, float3(ua, id.z), 0.0);
-    float4 b = gBlendB.SampleLevel(gLinearClamp, float3(ub, id.z), 0.0);
+    float src = gBlendTimes.w > 0.5 && id.z == 0 ? 3.0 : float(id.z); // the step-1 single layer in slice 0
+    float4 a = gBlendA.SampleLevel(gLinearClamp, float3(ua, src), 0.0);
+    float4 b = gBlendB.SampleLevel(gLinearClamp, float3(ub, src), 0.0);
     float4 blended = lerp(a, b, gBlendParams.x);
     gBlendOut[id] = lerp(gBlendSnapshot.Load(int4(id, 0)), blended, gBlendParams.y);
     // The noise phases drift with the same air (offsets in km east / north).

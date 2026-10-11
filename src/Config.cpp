@@ -85,6 +85,9 @@ Data / rendering:
                                default a fixed afternoon sun
   --cloud-altitude m           every cloud layer at this altitude above MSL (default: per-cell
                                HRRR altitudes of the low / middle / high layers)
+  --single-cloud-layer         the step-1 look: one thin static cloud shell (HRRR total cover at
+                               the altitude of the layer mostly seen from below) instead of the
+                               low / middle / high slabs drifting with the wind
   --weather-center lon,lat|default
                                centre of the ~1200 x 1130 km weather box (default: New York; the
                                panel's "Fetch weather here" moves it to the camera; HRRR covers
@@ -111,7 +114,8 @@ Data / rendering:
 
 Mouse: left-drag orbit, right-drag pan, wheel zoom (towards cursor).
 Keys:  WASD/QE fly, R reset view, 1 terrain, 2 imagery, 3 buildings, 4 water,
-       5 vessels, 6 clouds, 7 cloud shadows, L sun at the weather time, O fog,
+       5 vessels, 6 clouds, 7 cloud shadows, 8 single cloud layer (step-1 look),
+       L sun at the weather time, O fog,
        C contours, F wireframe, M MSAA on/off, T building facades, H HUD,
        G settings panel, P screenshot, F5 reload shaders, Esc quit.
 The settings panel (right; the arrow at its top or G hides it, the arrow at the
@@ -119,7 +123,8 @@ HUD or H hides the HUD) has two tabs. View: every toggle, MSAA samples, vsync,
 water clarity, contour interval, field of view, fly speed, LOD (screen-space
 error), camera views / go-to / copy, screenshot, shader reload. Time & weather:
 the weather date / time (limited to the hours with weather data, Now = live),
-sun at that time, cloud shadows, cloud layers low / middle / high, the history /
+sun at that time, cloud shadows, cloud layers low / middle / high or a single
+layer (step-1 look), the history /
 forecast table of the hours with data (+-24..72 h; a row pins the time), the
 weather sources, the weather box centre + "Fetch weather here" and the loaded datasets.
 )";
@@ -227,6 +232,8 @@ std::optional<AppConfig> parseCommandLine(int argc, char** argv, const AppConfig
     } else if (a == "--cloud-altitude") {
       if (!next(v)) return fail("--cloud-altitude expects meters");
       cfg.cloudAltitude = std::stod(v);
+    } else if (a == "--single-cloud-layer") {
+      cfg.cloudSingle = true;
     } else if (a == "--contours") {
       cfg.contours = true;
     } else if (a == "--wireframe") {

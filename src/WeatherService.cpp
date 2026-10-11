@@ -516,10 +516,15 @@ Decoded decode(std::span<const std::byte> cloudBytes, std::span<const std::byte>
   for (CloudLayer& layer : cf.layers) {
     layer.opticalDepth.assign(n, 0.0f);
   }
+  cf.singleOpticalDepth.assign(n, 0.0f);
   for (size_t k = 0; k < n; ++k) {
     const float c[3] = {cf.layers[0].cover[k], cf.layers[1].cover[k], cf.layers[2].cover[k]};
     float tau[3] = {3.0f + 4.0f * cf.layers[0].thickness[k] * 0.001f, 3.0f + 4.0f * cf.layers[1].thickness[k] * 0.001f,
                     1.0f};
+    // The step-1 single layer: the heuristic alone, mixed by the layer covers.
+    const float sum = c[0] + c[1] + c[2];
+    cf.singleOpticalDepth[k] =
+        sum < 0.02f ? kTauClear[0] : std::min((c[0] * tau[0] + c[1] * tau[1] + c[2] * tau[2]) / sum, kTauMax[0]);
     if (cf.hasCondensate) {
       const float w = waterPath[k], i = icePath[k];
       const float waterLow = c[0] + c[1] > 0.01f ? c[0] / (c[0] + c[1]) : 0.5f;

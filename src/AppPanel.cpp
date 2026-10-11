@@ -447,13 +447,18 @@ void App::panelWeather() {
                                              "High clouds (above ~8 km): from the HRRR cloud top"};
   for (int l = 0; l < kCloudLayerCount; ++l) {
     ImGui::SameLine();
-    ImGui::BeginDisabled(!_showClouds);
+    ImGui::BeginDisabled(!_showClouds || _cloudSingle);
     if (ImGui::Checkbox(layerNames[l], &_cloudLayerOn[l])) {
       LOG_I("Settings panel: {} clouds {}", layerNames[l], _cloudLayerOn[l] ? "on" : "off");
     }
     ImGui::EndDisabled();
     tooltip(layerTips[l]);
   }
+  toggle("Single layer (step-1 look)", &_cloudSingle, "8",
+         "One thin cloud shell as in step 1: the HRRR total cover at the altitude of the layer mostly seen from "
+         "below (or --cloud-altitude), static shapes. Off: the low / middle / high slabs at their own altitudes, "
+         "drifting with the wind",
+         _showClouds);
 }
 
 // Where the weather comes from, what is loaded, and the nearest forecast.

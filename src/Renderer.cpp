@@ -874,8 +874,9 @@ void Renderer::beginFrame(const Camera& camera, const SceneSettings& settings) {
       fc.cloudNoise[l] = glm::vec4(cf.noiseA[l], cf.noiseB[l]);
     }
     const bool shadows = _settings.clouds && settings.cloudShadows && _cloudShadowUav && _csCloudShadow;
-    fc.cloudMisc = glm::vec4(cf.b ? std::clamp(cf.weightB, 0.0f, 1.0f) : 0.0f, shadows ? 1.0f : 0.0f,
-                             _settings.clouds ? 1.0f : 0.0f, 0.0f);
+    // The single layer keeps one static noise phase (the fields still blend in time).
+    fc.cloudMisc = glm::vec4(cf.b && !cf.single ? std::clamp(cf.weightB, 0.0f, 1.0f) : 0.0f, shadows ? 1.0f : 0.0f,
+                             _settings.clouds ? 1.0f : 0.0f, cf.single ? 1.0f : 0.0f);
   }
 
   D3D11_MAPPED_SUBRESOURCE mapped{};
@@ -892,10 +893,12 @@ void Renderer::beginFrame(const Camera& camera, const SceneSettings& settings) {
     }
     key.layers = fc.cloudLayers;
     key.sun = glm::vec3(glm::normalize(settings.sunDirectionEcef));
-    key.weightB = fc.cloudMisc.x;
+    key.weightB = settings.cloud.b ? std::clamp(settings.cloud.weightB, 0.0f, 1.0f) : 0.0f;
     key.fade = _cloudSnapshotValid ? settings.cloud.fade : 1.0f;
+    key.single = settings.cloud.single;
     const CloudShadowKey& last = _cloudShadowKey;
     bool changed = !_cloudShadowValid || key.a != last.a || key.b != last.b || key.layers != last.layers ||
+                   key.single != last.single ||
                    glm::length(key.sun - last.sun) > 3e-4f || std::abs(key.weightB - last.weightB) > 0.002f ||
                    std::abs(key.fade - last.fade) > 0.01f || (key.fade == 1.0f) != (last.fade == 1.0f);
     for (int l = 0; l < kCloudLayerCount && !changed; ++l) {
@@ -1133,7 +1136,7 @@ void Renderer::setCloudGrid(const CloudGrid& grid) {
 std::shared_ptr<CloudTexture> Renderer::createCloudTexture(const CloudFields& f) {
   const CloudGrid& g = f.grid;
   const size_t n = size_t(g.nx) * size_t(g.ny);
-  bool consistent = n > 0 && g == _cloudGrid;
+  bool consistent = n > 0 && g == _cloudGrid && f.cover.size() == n && f.singleOpticalDepth.size() == n;
   for (const CloudLayer& layer : f.layers) {
     consistent = consistent && layer.cover.size() == n && layer.altitude.size() == n &&
                  layer.opticalDepth.size() == n && layer.thickness.size() == n && layer.windEast.size() == n &&
@@ -1146,9 +1149,13 @@ std::shared_ptr<CloudTexture> Renderer::createCloudTexture(const CloudFields& f)
     return nullptr;
   }
   // One RGBA16F slice per layer: cover, base (km MSL), in-cloud optical depth,
-  // thickness (km). Read only by CSBlendClouds (mip 0, bilinear).
-  std::vector<uint16_t> texels(n * 4 * kCloudLayerCount);
-  D3D11_SUBRESOURCE_DATA init[kCloudLayerCount]{};
+  // thickness (km). Read only by CSBlendClouds (mip 0, bilinear). Slice 3: the
+  // single layer of the step-1 look (the total cover at the dominant layer's
+  // altitude, as a thin shell; CloudFrame::single).
+  constexpr size_t kSlices = size_t(kCloudLayerCount) + 1;
+  constexpr float kSingleThicknessKm = 0.1f; // the minimum slab of PSClouds
+  std::vector<uint16_t> texels(n * 4 * kSlices);
+  D3D11_SUBRESOURCE_DATA init[kSlices]{};
   for (size_t l = 0; l < size_t(kCloudLayerCount); ++l) {
     const CloudLayer& layer = f.layers[l];
     uint16_t* out = texels.data() + l * n * 4;
@@ -1160,11 +1167,23 @@ std::shared_ptr<CloudTexture> Renderer::createCloudTexture(const CloudFields& f)
     }
     init[l] = {out, UINT(g.nx) * 8u, 0};
   }
+  {
+    uint16_t* out = texels.data() + size_t(kCloudLayerCount) * n * 4;
+    const uint16_t base = glm::packHalf1x16(float(f.layerAltitude) * 0.001f);
+    const uint16_t thickness = glm::packHalf1x16(kSingleThicknessKm);
+    for (size_t k = 0; k < n; ++k) {
+      out[k * 4 + 0] = glm::packHalf1x16(f.cover[k]);
+      out[k * 4 + 1] = base;
+      out[k * 4 + 2] = glm::packHalf1x16(f.singleOpticalDepth[k]);
+      out[k * 4 + 3] = thickness;
+    }
+    init[kCloudLayerCount] = {out, UINT(g.nx) * 8u, 0};
+  }
   D3D11_TEXTURE2D_DESC td{};
   td.Width = UINT(g.nx);
   td.Height = UINT(g.ny);
   td.MipLevels = 1;
-  td.ArraySize = kCloudLayerCount;
+  td.ArraySize = UINT(kSlices);
   td.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
   td.SampleDesc.Count = 1;
   td.Usage = D3D11_USAGE_IMMUTABLE;
@@ -1186,6 +1205,7 @@ std::shared_ptr<CloudTexture> Renderer::createCloudTexture(const CloudFields& f)
     }
     init[l] = {out, UINT(g.nx) * 4u, 0};
   }
+  td.ArraySize = kCloudLayerCount;
   td.Format = DXGI_FORMAT_R16G16_FLOAT;
   ComPtr<ID3D11Texture2D> windTexture;
   if (!HR_OK(_device->CreateTexture2D(&td, init, &windTexture)) ||
@@ -1193,7 +1213,7 @@ std::shared_ptr<CloudTexture> Renderer::createCloudTexture(const CloudFields& f)
     return nullptr;
   }
   SPDLOG_LOGGER_DEBUG(Log::gpu(), "Cloud dataset uploaded: {}x{}x{} RGBA16F + RG16F winds ({:.1f} MB)", g.nx, g.ny,
-                      int(kCloudLayerCount), double(texels.size() + wind.size()) * 2.0 / (1024.0 * 1024.0));
+                      int(kSlices), double(texels.size() + wind.size()) * 2.0 / (1024.0 * 1024.0));
   return result;
 }
 
@@ -1217,7 +1237,7 @@ void Renderer::blendClouds(const CloudFrame& f) {
   const float fade = _cloudSnapshotValid ? std::clamp(f.fade, 0.0f, 1.0f) : 1.0f;
   cb.params = glm::vec4(f.b ? std::clamp(f.weightB, 0.0f, 1.0f) : 0.0f, fade, 1.0f / float(_cloudGrid.nx),
                         1.0f / float(_cloudGrid.ny));
-  cb.times = glm::vec4(f.driftA, f.b ? f.driftB : f.driftA, std::clamp(f.glide, 0.0f, 1.0f), 0.0f);
+  cb.times = glm::vec4(f.driftA, f.b ? f.driftB : f.driftA, std::clamp(f.glide, 0.0f, 1.0f), f.single ? 1.0f : 0.0f);
   cb.grid = glm::vec4(float(Math::degreesToRadians(_cloudGrid.north)), float(latSpan),
                       float(1.0 / (kEarthRadius * lonSpan)), float(1.0 / (kEarthRadius * latSpan)));
   D3D11_MAPPED_SUBRESOURCE mapped{};

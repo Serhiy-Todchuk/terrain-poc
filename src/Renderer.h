@@ -15,10 +15,10 @@
 #include <string>
 #include <vector>
 
-// One weather dataset on the GPU (Renderer::createCloudTexture): a 3-slice
-// RGBA16F array (low / middle / high layer: cover, base km, optical depth,
-// thickness km) and a 3-slice RG16F array (the layer wind per cell, m/s east /
-// north) on CloudGrid.
+// One weather dataset on the GPU (Renderer::createCloudTexture): a 4-slice
+// RGBA16F array (low / middle / high layer + the step-1 single layer: cover,
+// base km, optical depth, thickness km) and a 3-slice RG16F array (the layer
+// wind per cell, m/s east / north) on CloudGrid.
 struct CloudTexture {
   Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv;
   Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> wind;
@@ -44,6 +44,9 @@ struct CloudFrame {
   glm::vec2 meanDriftA[3]{}, meanDriftB[3]{}; // per layer: drift of the phases with the mean wind (km): change key
   bool layer[3] = {true, true, true};  // low / middle / high drawn
   double manualAltitude = -1.0;        // m MSL for every layer (< 0: per-cell HRRR altitudes)
+  // The step-1 look: one thin shell (the datasets' single layer in slice 0,
+  // static noise of one phase, no slab samples); the app passes no drift.
+  bool single = false;
 };
 
 struct SceneSettings {
@@ -150,12 +153,12 @@ private:
                               // w: MSL -> height above the sphere (geoid, m)
     glm::vec4 cloudLayers;    // xyz: layer drawn (1/0), w: manual altitude (m MSL, < 0: per cell)
     glm::vec4 cloudNoise[3];  // per layer: xy noise seed of phase a, zw of phase b (km; + the per-cell drift)
-    glm::vec4 cloudMisc;      // x: weight of phase b, y: shadows on, z: clouds on
+    glm::vec4 cloudMisc;      // x: weight of phase b, y: shadows on, z: clouds on, w: single layer (step-1 look)
   };
   // Mirrors cbuffer CloudBlendConstants (CSBlendClouds).
   struct CloudBlendConstants {
     glm::vec4 params; // x: weight of b, y: fade from the snapshot, zw: 1 / texture size
-    glm::vec4 times;  // x: drift time of a (s), y: of b, z: wind glide (old -> new datasets)
+    glm::vec4 times;  // x: drift time of a (s), y: of b, z: wind glide (old -> new datasets), w: single layer (1/0)
     glm::vec4 grid;   // x: north (rad), y: lat span (rad), z: 1 / (R lon span), w: 1 / (R lat span) (uv per m)
   };
   struct DrawConstants {
@@ -238,6 +241,7 @@ private:
     glm::vec4 layers{0.0f};
     glm::vec3 sun{0.0f};
     float weightB = 0.0f, fade = 0.0f;
+    bool single = false;
   };
   bool createCloudTargets();
   void blendClouds(const CloudFrame& frame);

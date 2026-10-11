@@ -325,7 +325,25 @@ datasets and the blend, per layer cover / altitude / wind. Script: `weather
 CLI: `--apply-sun`, `--no-fog`, `--no-cloud-shadows`, `--cloud-altitude` (every
 layer at one altitude). `scripts/clouds_test.txt`: layers one by one, shadows
 on / off, a 10-minute drift, fog off, sunrise / sunset / night, the domain from
-700 km, live.
+700 km, the single layer, live.
+
+**Single layer — the step-1 look** (added 2026-10-11, for comparison): key `8`,
+panel *Single layer (step-1 look)* under the layers (Low / Mid / High are then
+disabled), `--single-cloud-layer`, script `set cloudsingle`, persisted as
+`weather.cloud_single`. The step-1 code is gone, so the look is emulated on the
+step-2 pipeline: every dataset texture has a fourth slice with the total cover
+(`TCDC`) at the dataset's `layerAltitude` (the layer mostly seen from below near
+the box centre, one altitude for the whole grid), step 1's optical-depth
+heuristic mixed by the layer covers (`CloudFields::singleOpticalDepth`) and
+100 m of thickness; `CSBlendClouds` puts it into slice 0 and the other layers
+are off. No drift, one noise phase with a fixed seed and the 14 km base
+wavelength (6 octaves down to 0.45 km), no vertical envelope, no side samples:
+a thin shell with static shapes. Differences from step 1 as built: the fields
+still blend linearly between the two hours (step 1 switched to the nearest hour
+with an 8 s cross-fade); the footprint-dependent soft threshold stays (step 1
+aliased from orbit); cloud shadows and *Apply to sun* stay separate toggles
+(step 1 had neither); the altitude is step 2's per-layer estimate (step 1 took
+the cover-weighted median of the cloud base, or top − 1.5 km for high clouds).
 
 **Known limits of step 2** (after 2026-10-11): middle / high bases are
 estimates where lower layers exist (no humidity profile in the 2D file, no
@@ -362,6 +380,16 @@ Corrections / risks found while planning step 1:
   away from nadir by ~height·tan(view zenith), roughly 1× the cloud height at NYC).
 - Refresh GOES every 5–10 min, HRRR hourly; at night fall back to HRRR cover
   (no COD).
+
+**UI — cloud quality levels** (requested 2026-10-11): step 3 replaces the
+*Single layer (step-1 look)* checkbox with a combo box of cloud quality levels
+with meaningful names, one per step, each adding to the previous ones — e.g.
+*Simple shell* (step 1), *Layers + wind* (step 2), *Satellite observed*
+(step 3), later *Volumetric* (step 4), *Volumetric + scattering* (step 5). Every
+later step adds its level, so all earlier looks stay selectable for comparison.
+Key `8` cycles the levels; the script command, CLI option and persisted setting
+(`weather.cloud_single` today) become one level value (read the old key as
+*Simple shell* / *Layers + wind*).
 
 ## Step 4 — Procedural volumetric clouds
 

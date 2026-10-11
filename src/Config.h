@@ -63,6 +63,7 @@ struct AppConfig {
   bool clouds = true;           // live cloud layers (NOAA HRRR)
   bool cloudShadows = true;     // the clouds shade the scene
   bool cloudLayers[3] = {true, true, true}; // low / middle / high layers shown
+  bool cloudSingle = false;     // the step-1 look: one static shell (total cover at the dominant layer's altitude)
   std::optional<std::pair<double, double>> weatherCenter; // lon, lat of the weather box; nullopt = New York
   int historyHours = 48;        // panel: weather history / forecast table +- hours
   std::optional<int64_t> weatherTime; // pinned weather time (unix s, UTC); nullopt = live

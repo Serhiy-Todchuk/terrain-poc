@@ -113,6 +113,7 @@ const std::vector<Key>& keys() {
          }
          return s;
        }},
+      boolKey("weather.cloud_single", &AppConfig::cloudSingle),
       intKey("weather.history_hours", &AppConfig::historyHours, 24, 72),
       {"weather.center",
        [](AppConfig& c, const std::string& v) {
