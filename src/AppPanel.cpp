@@ -440,6 +440,25 @@ void App::panelWeather() {
   toggle("Cloud shadows", &_scene.cloudShadows, "7",
          "The clouds shade terrain, buildings, vessels, water and lower cloud layers (the same cloud shapes, "
          "projected along the sun)");
+  // Cloud quality: one level per roadmap step, each adding to the previous ones.
+  ImGui::BeginDisabled(!_showClouds);
+  ImGui::TextUnformatted("Quality");
+  ImGui::SameLine();
+  ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("8").x - style.ItemSpacing.x);
+  if (ImGui::BeginCombo("##cloudlevel", cloudLevelInfo(_cloudLevel).name)) {
+    for (int i = 0; i < kCloudLevelCount; ++i) {
+      const CloudLevelInfo& info = cloudLevelInfo(CloudLevel(i));
+      if (ImGui::Selectable(info.name, i == int(_cloudLevel))) {
+        setCloudLevel(CloudLevel(i), "Settings panel");
+      }
+      tooltip(info.tooltip);
+    }
+    ImGui::EndCombo();
+  }
+  ImGui::EndDisabled();
+  tooltip("Cloud quality: one level per step of the weather roadmap, each adding to the previous ones; every level "
+          "stays selectable for comparison (8 selects the next one)");
+  shortcut("8");
   ImGui::TextUnformatted("Layers");
   const char* layerNames[kCloudLayerCount] = {"Low", "Mid", "High"};
   const char* layerTips[kCloudLayerCount] = {"Low clouds (below ~3.8 km): base from the HRRR cloud base",
@@ -447,18 +466,13 @@ void App::panelWeather() {
                                              "High clouds (above ~8 km): from the HRRR cloud top"};
   for (int l = 0; l < kCloudLayerCount; ++l) {
     ImGui::SameLine();
-    ImGui::BeginDisabled(!_showClouds || _cloudSingle);
+    ImGui::BeginDisabled(!_showClouds || _cloudLevel == CloudLevel::Shell);
     if (ImGui::Checkbox(layerNames[l], &_cloudLayerOn[l])) {
       LOG_I("Settings panel: {} clouds {}", layerNames[l], _cloudLayerOn[l] ? "on" : "off");
     }
     ImGui::EndDisabled();
     tooltip(layerTips[l]);
   }
-  toggle("Single layer (step-1 look)", &_cloudSingle, "8",
-         "One thin cloud shell as in step 1: the HRRR total cover at the altitude of the layer mostly seen from "
-         "below (or --cloud-altitude), static shapes. Off: the low / middle / high slabs at their own altitudes, "
-         "drifting with the wind",
-         _showClouds);
 }
 
 // Where the weather comes from, what is loaded, and the nearest forecast.

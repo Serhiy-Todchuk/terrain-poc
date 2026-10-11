@@ -47,7 +47,8 @@ bool readInt(const std::string& v, int lo, int hi, int& out) {
   return true;
 }
 
-// A persisted key: a reader (false = bad value) and a writer over an AppConfig.
+// A persisted key: a reader (false = bad value) and a writer over an AppConfig
+// (none: a legacy key, read but no longer written).
 struct Key {
   const char* name;
   std::function<bool(AppConfig&, const std::string&)> read;
@@ -113,7 +114,20 @@ const std::vector<Key>& keys() {
          }
          return s;
        }},
-      boolKey("weather.cloud_single", &AppConfig::cloudSingle),
+      {"weather.cloud_level",
+       [](AppConfig& c, const std::string& v) {
+         const std::optional<CloudLevel> level = parseCloudLevel(v);
+         c.cloudLevel = level.value_or(c.cloudLevel);
+         return level.has_value();
+       },
+       [](const AppConfig& c) { return std::string(cloudLevelInfo(c.cloudLevel).id); }},
+      // Before the quality levels (2026-10-11): the "Single layer (step-1 look)" toggle.
+      {"weather.cloud_single",
+       [](AppConfig& c, const std::string& v) {
+         c.cloudLevel = toBool(v) ? CloudLevel::Shell : CloudLevel::Layers;
+         return true;
+       },
+       nullptr},
       intKey("weather.history_hours", &AppConfig::historyHours, 24, 72),
       {"weather.center",
        [](AppConfig& c, const std::string& v) {
@@ -215,7 +229,9 @@ bool save(const std::filesystem::path& path, const AppConfig& cfg, std::string& 
   out << "# TerrainPOC settings, written at exit (delete to reset; --no-settings ignores the file).\n"
          "# Command-line options override these values.\n";
   for (const Key& k : keys()) {
-    out << k.name << '=' << k.write(cfg) << '\n';
+    if (k.write) {
+      out << k.name << '=' << k.write(cfg) << '\n';
+    }
   }
   std::ofstream file(path, std::ios::trunc);
   if (!file || !(file << out.str()) || !file.flush()) {

@@ -54,6 +54,8 @@ private:
   void setWeatherCenter(std::optional<std::pair<double, double>> lonLat, const char* reason);
   // The camera's lon/lat if a box centred there lies inside the HRRR domain.
   std::optional<std::pair<double, double>> weatherCenterAtCamera() const;
+  // The cloud quality level (panel combo, key 8, script cloudlevel); logged with `reason`.
+  void setCloudLevel(CloudLevel level, const char* reason);
 
   // ---- settings panel (Dear ImGui, right side; AppPanel.cpp)
   // Tabs: View (Layers, Rendering, Camera, Level of detail, Tools) and
@@ -141,7 +143,7 @@ private:
 
   bool _showTerrain = true, _showBuildings = true, _showVessels = true, _showClouds = true;
   bool _cloudLayerOn[3] = {true, true, true}; // low / middle / high
-  bool _cloudSingle = false;     // the step-1 look: one static shell, the total cover at the dominant layer's altitude
+  CloudLevel _cloudLevel = CloudLevel::Layers; // cloud quality level (one per roadmap step)
   double _cloudAltitude = -1.0;  // all layers at this altitude (m MSL, --cloud-altitude); < 0: per-cell HRRR
   bool _sunFromTime = false;     // "Apply to sun": the sun (and the time-of-day light) at the weather time
   std::optional<std::pair<double, double>> _weatherCenter; // the weather box centre; nullopt = New York

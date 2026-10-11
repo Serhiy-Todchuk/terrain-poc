@@ -27,7 +27,29 @@ bool parseBool(const std::string& v) {
   return v == "1" || v == "on" || v == "true" || v == "yes";
 }
 
+constexpr CloudLevelInfo kCloudLevels[kCloudLevelCount] = {
+    {"shell", "Simple shell",
+     "Step 1: one thin cloud shell, the HRRR total cover at the altitude of the layer mostly seen from below (or "
+     "--cloud-altitude), static shapes"},
+    {"layers", "Layers + wind",
+     "Step 2: the HRRR low / middle / high layers as slabs at their own altitudes and thickness per cell, drifting "
+     "with each layer's wind field, blended between the hours"},
+};
+
 } // namespace
+
+const CloudLevelInfo& cloudLevelInfo(CloudLevel level) {
+  return kCloudLevels[std::clamp(int(level), 0, kCloudLevelCount - 1)];
+}
+
+std::optional<CloudLevel> parseCloudLevel(const std::string& id) {
+  for (int i = 0; i < kCloudLevelCount; ++i) {
+    if (id == kCloudLevels[i].id || id == std::to_string(i)) {
+      return CloudLevel(i);
+    }
+  }
+  return std::nullopt;
+}
 
 bool parseCameraSpec(const std::string& text, CameraSpec::Mode mode, CameraSpec& out) {
   std::vector<double> v = parseNumbers(text);
@@ -85,9 +107,10 @@ Data / rendering:
                                default a fixed afternoon sun
   --cloud-altitude m           every cloud layer at this altitude above MSL (default: per-cell
                                HRRR altitudes of the low / middle / high layers)
-  --single-cloud-layer         the step-1 look: one thin static cloud shell (HRRR total cover at
-                               the altitude of the layer mostly seen from below) instead of the
-                               low / middle / high slabs drifting with the wind
+  --cloud-level shell|layers   cloud quality level, one per roadmap step (default layers):
+                               shell = step 1, one thin static shell (HRRR total cover at the
+                               altitude of the layer mostly seen from below); layers = step 2,
+                               the low / middle / high slabs drifting with the wind
   --weather-center lon,lat|default
                                centre of the ~1200 x 1130 km weather box (default: New York; the
                                panel's "Fetch weather here" moves it to the camera; HRRR covers
@@ -114,7 +137,7 @@ Data / rendering:
 
 Mouse: left-drag orbit, right-drag pan, wheel zoom (towards cursor).
 Keys:  WASD/QE fly, R reset view, 1 terrain, 2 imagery, 3 buildings, 4 water,
-       5 vessels, 6 clouds, 7 cloud shadows, 8 single cloud layer (step-1 look),
+       5 vessels, 6 clouds, 7 cloud shadows, 8 next cloud quality level,
        L sun at the weather time, O fog,
        C contours, F wireframe, M MSAA on/off, T building facades, H HUD,
        G settings panel, P screenshot, F5 reload shaders, Esc quit.
@@ -123,8 +146,8 @@ HUD or H hides the HUD) has two tabs. View: every toggle, MSAA samples, vsync,
 water clarity, contour interval, field of view, fly speed, LOD (screen-space
 error), camera views / go-to / copy, screenshot, shader reload. Time & weather:
 the weather date / time (limited to the hours with weather data, Now = live),
-sun at that time, cloud shadows, cloud layers low / middle / high or a single
-layer (step-1 look), the history /
+sun at that time, cloud shadows, the cloud quality level (simple shell / layers +
+wind), cloud layers low / middle / high, the history /
 forecast table of the hours with data (+-24..72 h; a row pins the time), the
 weather sources, the weather box centre + "Fetch weather here" and the loaded datasets.
 )";
@@ -232,8 +255,10 @@ std::optional<AppConfig> parseCommandLine(int argc, char** argv, const AppConfig
     } else if (a == "--cloud-altitude") {
       if (!next(v)) return fail("--cloud-altitude expects meters");
       cfg.cloudAltitude = std::stod(v);
-    } else if (a == "--single-cloud-layer") {
-      cfg.cloudSingle = true;
+    } else if (a == "--cloud-level") {
+      const std::optional<CloudLevel> level = next(v) ? parseCloudLevel(v) : std::nullopt;
+      if (!level) return fail("--cloud-level expects shell or layers");
+      cfg.cloudLevel = *level;
     } else if (a == "--contours") {
       cfg.contours = true;
     } else if (a == "--wireframe") {

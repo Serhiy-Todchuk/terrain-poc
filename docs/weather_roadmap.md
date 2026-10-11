@@ -326,12 +326,13 @@ datasets and the blend, per layer cover / altitude / wind. Script: `weather
 CLI: `--apply-sun`, `--no-fog`, `--no-cloud-shadows`, `--cloud-altitude` (every
 layer at one altitude). `scripts/clouds_test.txt`: layers one by one, shadows
 on / off, a 10-minute drift, fog off, sunrise / sunset / night, the domain from
-700 km, the single layer, live.
+700 km, the *Simple shell* level, live.
 
-**Single layer — the step-1 look** (added 2026-10-11, for comparison): key `8`,
-panel *Single layer (step-1 look)* under the layers (Low / Mid / High are then
-disabled), `--single-cloud-layer`, script `set cloudsingle`, persisted as
-`weather.cloud_single`. The step-1 code is gone, so the look is emulated on the
+**Single layer — the step-1 look** (added 2026-10-11, for comparison; since the
+same day the cloud quality level *Simple shell*, see step 3 → UI: panel combo,
+key `8`, `--cloud-level shell`, script `cloudlevel shell`, persisted as
+`weather.cloud_level`; Low / Mid / High are disabled at this level). The step-1
+code is gone, so the look is emulated on the
 step-2 pipeline: every dataset texture has a fourth slice with the total cover
 (`TCDC`) at the dataset's `layerAltitude` (the layer mostly seen from below near
 the box centre, one altitude for the whole grid), step 1's optical-depth
@@ -427,6 +428,7 @@ component the PoC does not have), THREDDS (above).
 **Plan**:
 
 1. Cloud quality combo (UI below) — the frame for comparing HRRR and GOES.
+   **Done 2026-10-11.**
 2. `Hdf5` reader, checked on cached `ACHAC` / `CCLC` files (structure, attributes,
    decoded values against THREDDS `dataset.xml` and physical ranges).
 3. GOES fixed-grid navigation (lon / lat ↔ scan angles) and the parallax
@@ -447,6 +449,16 @@ later step adds its level, so all earlier looks stay selectable for comparison.
 Key `8` cycles the levels; the script command, CLI option and persisted setting
 (`weather.cloud_single` today) become one level value (read the old key as
 *Simple shell* / *Layers + wind*).
+
+As built (2026-10-11): `CloudLevel` in `src/Config.h` with a table of id / name /
+tooltip (`kCloudLevels`, `cloudLevelInfo`, `parseCloudLevel`); levels `shell`
+(*Simple shell*) and `layers` (*Layers + wind*, the default) so far. Panel: the
+row *Quality* [combo] `8` in place of the *Single layer* checkbox, above the
+Low / Mid / High row (disabled at *Simple shell*), so the rows below keep their
+positions. `--cloud-level shell|layers`, script `cloudlevel shell|layers`,
+persisted `weather.cloud_level` (the old `weather.cloud_single` is read once and
+not written again); every change is logged with its `--cloud-level`. The next
+level (*Satellite observed*) arrives with the GOES blend (plan item 5).
 
 ## Step 4 — Procedural volumetric clouds
 

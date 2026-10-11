@@ -1,7 +1,7 @@
 # Cloud layers (NOAA HRRR via NOMADS, docs/weather_roadmap.md steps 1-2): low /
 # middle / high layers at their own altitudes, drifting with the HRRR winds,
 # shading the scene; the time blend between hours; fog off; the sun at the
-# weather time (sunrise, sunset, night); the single layer (step-1 look, key 8);
+# weather time (sunrise, sunset, night); the cloud quality levels (key 8);
 # live weather at the end.
 # Replays fixed hours of 2026-10-10/11 (disk cache once seen; NOMADS keeps ~2 days).
 # Run: TerrainPOC.exe --script ..\..\scripts\clouds_test.txt --shot-dir ..\..\shots\clouds
@@ -88,23 +88,25 @@ lookat -74.0,40.66,0,0,-89,700000
 wait
 shot c16_domain
 
-# Single layer (the step-1 look): one thin static shell, HRRR total cover at the
-# altitude of the layer mostly seen from below (2026-10-10 13z: high, ~10 km)
-set cloudsingle on
+# Cloud quality "Simple shell" (the step-1 look): one thin static shell, HRRR
+# total cover at the altitude of the layer mostly seen from below (2026-10-10
+# 13z: high, ~10 km)
+cloudlevel shell
 camera -74.0400,40.6600,18,15,10
 wait
-shot cs1_single_vessel_eye
+shot cs1_shell_vessel_eye
 lookat -74.0300,40.6500,0,0,-60,35000
 weather 202610101310
 wait
-shot cs2_single_30km
+shot cs2_shell_30km
 # Ten minutes later: the same shapes (no drift), only the cover blends
 weather 202610101320
 wait
-shot cs3_single_30km_10min_later
+shot cs3_shell_30km_10min_later
+# Key 8: the next level (Layers + wind)
 key 8
 sleep 0.2
-shot cs4_key8_layered
+shot cs4_key8_layers
 
 # Live again; keys 6 (clouds) and 7 (shadows)
 weather live

@@ -14,6 +14,22 @@ struct CameraSpec {
   double range = 1800.0;           // LookAt only: distance eye <-> target
 };
 
+// Cloud quality levels (docs/weather_roadmap.md): one per roadmap step, each
+// adding to the previous ones; every level stays selectable for comparison.
+enum class CloudLevel : int {
+  Shell,  // step 1: one thin static shell, the total cover at the altitude of the layer mostly seen from below
+  Layers, // step 2: low / middle / high slabs at per-cell altitudes, drifting with the wind
+};
+constexpr int kCloudLevelCount = 2;
+
+struct CloudLevelInfo {
+  const char* id;      // command line, script and settings value
+  const char* name;    // panel / HUD
+  const char* tooltip; // panel
+};
+const CloudLevelInfo& cloudLevelInfo(CloudLevel level);
+std::optional<CloudLevel> parseCloudLevel(const std::string& id); // by id or index (0, 1, ...)
+
 struct AppConfig {
   int width = 1600;
   int height = 900;
@@ -63,7 +79,7 @@ struct AppConfig {
   bool clouds = true;           // live cloud layers (NOAA HRRR)
   bool cloudShadows = true;     // the clouds shade the scene
   bool cloudLayers[3] = {true, true, true}; // low / middle / high layers shown
-  bool cloudSingle = false;     // the step-1 look: one static shell (total cover at the dominant layer's altitude)
+  CloudLevel cloudLevel = CloudLevel::Layers; // cloud quality level (key 8 cycles)
   std::optional<std::pair<double, double>> weatherCenter; // lon, lat of the weather box; nullopt = New York
   int historyHours = 48;        // panel: weather history / forecast table +- hours
   std::optional<int64_t> weatherTime; // pinned weather time (unix s, UTC); nullopt = live

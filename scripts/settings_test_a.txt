@@ -9,7 +9,7 @@ set fog off
 set msaa off
 set vsync off
 set cloudhigh off
-set cloudsingle on   # the step-1 look (HUD: "single")
+cloudlevel shell     # the step-1 look (HUD: "simple shell")
 set contours on
 key H                # HUD hidden
 tab weather

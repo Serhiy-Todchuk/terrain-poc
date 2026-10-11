@@ -92,10 +92,11 @@ conversion. The sea surface is drawn at NAVD88 0 m (≈ local MSL, no tides).
   model cover; both drift with each layer's wind field, cell by cell, and
   evolve during the hour. Slant-path opacity, two-stream
   lighting, shadowing between layers, aerial perspective, depth-tested against
-  the scene, cross-faded after a data change. **Single layer** (key `8`, panel,
-  `--single-cloud-layer`): the step-1 look for comparison — one thin static
-  shell with the HRRR total cover at the altitude of the layer mostly seen from
-  below. **Cloud shadows**: a shadow map of
+  the scene, cross-faded after a data change. **Cloud quality** (panel combo,
+  key `8` = the next level, `--cloud-level`): one level per roadmap step, all
+  kept for comparison — *Simple shell* (step 1: one thin static shell with the
+  HRRR total cover at the altitude of the layer mostly seen from below) and
+  *Layers + wind* (step 2, the default). **Cloud shadows**: a shadow map of
   the sun's transmission through all layers over the weather domain, updated
   when the clouds or the sun change, darkens terrain, buildings, vessels, water
   and seabed. **Sun**: optionally at the weather time (solar ephemeris), with a
@@ -147,7 +148,7 @@ bin\Release\TerrainPOC.exe
 * **Wheel**: zoom towards the point under the cursor
 * WASD / QE fly, arrows look, `R` reset view
 * `1` terrain, `2` imagery, `3` buildings, `4` water, `5` vessels, `6` clouds,
-  `7` cloud shadows, `8` single cloud layer (step-1 look), `L` sun at the
+  `7` cloud shadows, `8` next cloud quality level, `L` sun at the
   weather time, `O` fog, `C` 1 m contours,
   `F` wireframe, `M` MSAA on/off, `T` building façades, `H` HUD,
   `G` settings panel, `P` screenshot, `F5` reload shaders, Esc quit
@@ -166,8 +167,9 @@ interval, camera views (the harness views), go-to
 to the clipboard, field of view, fly speed, terrain / buildings screen-space
 error (live), screenshot, shader reload, stats to the log. **Time & weather**:
 *Now* (live), the date (only days with weather data, ◀ ▶), the time of day
-(only hours with data), ±1 h, *Apply to sun*, cloud shadows, the cloud layers
-low / middle / high or *Single layer (step-1 look)*; **History & forecast** — the hours with data ±24 / 48 /
+(only hours with data), ±1 h, *Apply to sun*, cloud shadows, the cloud
+quality (*Simple shell* / *Layers + wind*), the cloud layers low / middle /
+high; **History & forecast** — the hours with data ±24 / 48 /
 72 h around the weather time (UTC, model run, where the data is, cover of the
 low / middle / high layers once a dataset was seen; the current hour is tinted,
 a row pins the time); **Sources** — the weather box (its centre, how far the
@@ -217,7 +219,8 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   | `shot name` | screenshot to `<shot-dir>/name.png` |
   | `drag left\|right x0 y0 x1 y1 [steps]` | synthetic orbit / pan through the real handlers |
   | `wheel x y notches` | synthetic zoom towards a pixel |
-  | `key K`, `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|cloudsingle\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off` | toggles |
+  | `key K`, `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off` | toggles |
+  | `cloudlevel shell\|layers` | the cloud quality level |
   | `weather live\|YYYYMMDDHH[MM]\|-N` | the weather time: live, a fixed UTC time or N hours ago (replay / forecast, cross-fades) |
   | `weather here`, `weather center lon,lat\|default` | move the weather box to the camera / a point / back to New York |
   | `set sections on\|off` | open / close every section of the shown settings-panel tab (once) |
@@ -231,14 +234,14 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   `msaa_test.txt` (MSAA off/on comparison), `facades_test.txt` (plain vs
   textured buildings), `panel_test.txt` (settings panel: clicks, wheel and
   typing routed panel-vs-scene, both tabs, weather date / time and sun
-  controls, the single cloud layer, the history table, sections, the hide / show arrows, hidden,
+  controls, the cloud quality combo, the history table, sections, the hide / show arrows, hidden,
   narrow window), `settings_test_a.txt` + `settings_test_b.txt` (persisted
   settings: phase A changes the UI and quits with `--settings file`, phase B
   starts with the same file and shows the restored state, `--hud 1` overriding
   it), `weather_center_test.txt` (the weather box moved to Boston and back;
   needs the network once), `clouds_test.txt` (cloud layers from below / 3 km /
   30 km, each layer alone, shadows on / off, 10 minutes of drift, fog off,
-  sunrise / sunset / night, the weather domain, the single layer, live),
+  sunrise / sunset / night, the weather domain, the simple shell level, live),
   `regression.txt`.
   Screenshots include the HUD and the panel (`--hud 0`, `--panel 0` or
   `set panel off` for clean scene shots). The clouds are the live weather unless

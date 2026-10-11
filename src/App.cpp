@@ -130,7 +130,7 @@ bool App::init() {
   for (int l = 0; l < kCloudLayerCount; ++l) {
     _cloudLayerOn[l] = _cfg.cloudLayers[l];
   }
-  _cloudSingle = _cfg.cloudSingle;
+  _cloudLevel = _cfg.cloudLevel;
   _flySpeed = _cfg.flySpeed;
   _historyHours = _cfg.historyHours;
   _panelTab = std::clamp(_cfg.panelTab, 0, 1);
@@ -512,6 +512,14 @@ void App::setWeatherCenter(std::optional<std::pair<double, double>> lonLat, cons
   }
 }
 
+void App::setCloudLevel(CloudLevel level, const char* reason) {
+  if (level == _cloudLevel) {
+    return;
+  }
+  _cloudLevel = level;
+  LOG_I("{}: cloud quality {} (--cloud-level {})", reason, cloudLevelInfo(level).name, cloudLevelInfo(level).id);
+}
+
 void App::updateSun() {
   _scene.daylight = _sunFromTime;
   _scene.sunDirectionEcef = _sunFromTime ? Ephemeris::sunDirectionEcef(weatherTime()) : _fixedSun;
@@ -609,10 +617,11 @@ void App::updateClouds() {
     cf.noiseB[l] = glm::vec2(noiseSeed(_cloudB.fields ? _cloudB.fields->validTime : _cloudA.fields->validTime, l));
     cf.layer[l] = _cloudLayerOn[l];
   }
-  // The step-1 look: the single layer (slice 0) with static shapes - no drift,
-  // one fixed noise pattern; the fields still blend in time (without motion).
-  cf.single = _cloudSingle;
-  if (_cloudSingle) {
+  // Simple shell (the step-1 look): the single layer (slice 0) with static
+  // shapes - no drift, one fixed noise pattern; the fields still blend in time
+  // (without motion).
+  cf.single = _cloudLevel == CloudLevel::Shell;
+  if (cf.single) {
     cf.driftA = cf.driftB = 0.0f;
     for (int l = 0; l < kCloudLayerCount; ++l) {
       cf.meanDriftA[l] = cf.meanDriftB[l] = glm::vec2(0.0f);
@@ -848,7 +857,7 @@ void App::keyCommand(int vk) {
   case '5': _showVessels = !_showVessels; break;
   case '6': _showClouds = !_showClouds; break;
   case '7': _scene.cloudShadows = !_scene.cloudShadows; break;
-  case '8': _cloudSingle = !_cloudSingle; break;
+  case '8': setCloudLevel(CloudLevel((int(_cloudLevel) + 1) % kCloudLevelCount), "key 8"); break;
   case 'L': _sunFromTime = !_sunFromTime; updateSun(); break;
   case 'O': _scene.fog = !_scene.fog; break;
   case 'C': _scene.contours = !_scene.contours; break;
@@ -998,7 +1007,6 @@ bool App::setOption(const std::string& name, bool value) {
   else if (name == "cloudlow") _cloudLayerOn[0] = value;
   else if (name == "cloudmid") _cloudLayerOn[1] = value;
   else if (name == "cloudhigh") _cloudLayerOn[2] = value;
-  else if (name == "cloudsingle") _cloudSingle = value;
   else if (name == "sun") { _sunFromTime = value; updateSun(); }
   else if (name == "fog") _scene.fog = value;
   else if (name == "water") _scene.water = value;
@@ -1196,6 +1204,13 @@ void App::stepScript(double dt) {
     if (!setOption(arg(0), arg(1) == "on" || arg(1) == "1" || arg(1) == "true")) {
       LOG_E("script[{}]: unknown option {}", c.line, arg(0));
     }
+  } else if (c.verb == "cloudlevel") {
+    // cloudlevel shell | layers | N : the cloud quality level
+    if (const std::optional<CloudLevel> level = parseCloudLevel(arg(0))) {
+      setCloudLevel(*level, "script cloudlevel");
+    } else {
+      LOG_E("script[{}]: cloudlevel expects shell or layers", c.line);
+    }
   } else if (c.verb == "tab") {
     // tab view | weather : select a settings-panel tab
     if (arg(0) == "view" || arg(0) == "weather") {
@@ -1272,7 +1287,7 @@ AppConfig App::currentSettings() const {
   for (int l = 0; l < kCloudLayerCount; ++l) {
     c.cloudLayers[l] = _cloudLayerOn[l];
   }
-  c.cloudSingle = _cloudSingle;
+  c.cloudLevel = _cloudLevel;
   c.historyHours = _historyHours;
   c.weatherCenter = _weatherCenter;
   c.facades = _scene.facades;
@@ -1384,10 +1399,10 @@ std::vector<std::wstring> App::weatherHudLines() const {
     data += " -> " + hour(b) + " " + std::to_string(int(std::lround(w * 100.0))) + " %";
   }
   lines.push_back(wformat("clouds    %s%s%s", data.c_str(), activity.empty() ? "" : " | ", activity.c_str()));
-  if (_cloudSingle) {
+  if (_cloudLevel == CloudLevel::Shell) {
     const double altitude = _cloudAltitude >= 0.0 ? _cloudAltitude : glm::mix(a.layerAltitude, b.layerAltitude, w);
     const std::string from = _cloudAltitude >= 0.0 ? "manual altitude" : a.layerName + " layer seen from below";
-    lines.push_back(wformat("layers    single (step-1 look): total cover %.0f %% at %.1f km (%s), static shapes",
+    lines.push_back(wformat("layers    simple shell (step 1): total cover %.0f %% at %.1f km (%s), static shapes",
                             glm::mix(a.meanCover, b.meanCover, w) * 100.0, altitude / 1000.0, from.c_str()));
     return lines;
   }

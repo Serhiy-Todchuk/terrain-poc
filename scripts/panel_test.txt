@@ -1,7 +1,7 @@
 # Settings panel (Dear ImGui, right) + statistics HUD (left): layout, input
 # routing (window messages: panel first, scene only what the panel leaves),
 # the two tabs (View, Time & weather), state changed by script/keys reflected
-# in the panel, the single cloud layer toggle, all sections open, the hide / show
+# in the panel, the cloud quality combo, all sections open, the hide / show
 # arrows of both panels, panel
 # hidden (HUD shows the G hint), narrow window (no overlap).
 # Run: TerrainPOC.exe --script ..\..\scripts\panel_test.txt --shot-dir ..\..\shots\panel --offline
@@ -44,11 +44,15 @@ click 1312 184       # Apply to sun off
 click 1319 105       # Now
 wait
 shot p2e_now_live
-# single cloud layer (the step-1 look): on (Low / Mid / High disabled), off
-click 1312 262
+# cloud quality combo: Simple shell (Low / Mid / High disabled), back to Layers + wind
+click 1450 236
 sleep 0.3
-shot p2k_single_layer
-click 1312 262
+shot p2k_cloud_quality_open
+click 1400 262       # Simple shell
+sleep 0.3
+shot p2l_cloud_shell
+click 1450 236
+click 1400 282       # Layers + wind
 # history / forecast table: pin a cached hour, the table centres on it; the row
 # below pins the next cached hour (18:00 when cached); +-72 h range
 weather 2026101017
@@ -103,7 +107,7 @@ set facades off
 set fog off
 set shadows off
 set cloudhigh off
-set cloudsingle on
+cloudlevel shell
 set sun on
 set msaa off
 set vsync off
@@ -115,7 +119,7 @@ set facades on
 set fog on
 set shadows on
 set cloudhigh on
-set cloudsingle off
+cloudlevel layers
 set sun off
 set msaa on
 set vsync on
