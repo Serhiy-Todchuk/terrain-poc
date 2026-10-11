@@ -1,0 +1,50 @@
+# TerrainPOC harness script: views around the point of interest
+# (Sunset Park / Bush Terminal piers, Brooklyn: lon -74.00753, lat 40.66005).
+# Run:  TerrainPOC.exe --script scripts\shots_poi.txt --shot-dir shots
+#
+# camera lon,lat,alt,heading,pitch          eye position (alt = m above MSL)
+# lookat lon,lat,alt,heading,pitch,range    orbit view around a target
+# wait [timeout]   wait until every tile/image is loaded
+# shot name        save <shot-dir>/name.png
+# drag left|right x0 y0 x1 y1 [steps]   synthetic orbit / pan
+# wheel x y notches                      synthetic zoom towards a pixel
+# set water|buildings|terrain|imagery|contours|hud|vessels on|off
+
+lookat -74.00753,40.66005,0,330,-30,1800
+wait
+shot 01_poi_overview
+
+lookat -74.00753,40.66005,0,300,-35,400
+wait
+shot 02_poi_close
+
+lookat -74.0300,40.6650,0,20,-25,3500
+wait
+shot 03_upper_bay
+
+set water off
+lookat -74.0200,40.6620,-8,330,-40,700
+wait
+shot 04_seabed_no_water
+set water on
+
+# ~1 m relief: 1 m contour lines on land around the point of interest
+set contours on
+set buildings off
+lookat -74.00753,40.66005,3,20,-55,180
+wait
+shot 05_poi_contours_1m
+
+# seabed close-up next to the piers with 1 m contours (water hidden)
+set water off
+lookat -74.0150,40.6620,-9,330,-50,260
+wait
+shot 06_seabed_contours_1m
+set water on
+set contours off
+set buildings on
+
+# same seabed spot with the semi-transparent sea surface
+lookat -74.0150,40.6620,-9,330,-50,260
+wait
+shot 07_seabed_through_water

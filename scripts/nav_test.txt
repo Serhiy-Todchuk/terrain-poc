@@ -1,0 +1,30 @@
+# Navigation test: synthetic mouse input through the same handlers as the
+# real mouse (left-drag orbit, right-drag pan, wheel zoom towards the cursor).
+# Window client area is 1600x900 by default; the POI is at the screen centre.
+
+lookat -74.00753,40.66005,0,330,-30,1800
+wait
+shot nav_00_start
+
+# orbit 90 degrees to the right around the point under the screen centre
+drag left 800 450 1160 450 30
+wait
+shot nav_01_orbit_right
+
+# tilt: drag down -> camera rises, looks more steeply down
+drag left 800 450 800 650 30
+wait
+shot nav_02_orbit_down
+
+# pan: grab the ground at the centre and drag it to the lower-left
+drag right 800 450 500 650 30
+wait
+shot nav_03_pan
+
+# zoom in 5 notches towards the screen centre, then out 3
+wheel 800 450 5
+wait
+shot nav_04_zoom_in
+wheel 800 450 -3
+wait
+shot nav_05_zoom_out

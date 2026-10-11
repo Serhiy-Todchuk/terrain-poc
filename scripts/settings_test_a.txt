@@ -1,0 +1,18 @@
+# Persisted UI settings, phase A: changes the UI state (keys, script, panel),
+# then quits - the settings file is written at exit. Run from bin\<cfg>:
+#   TerrainPOC.exe --script ..\..\scripts\settings_test_a.txt --shot-dir ..\..\shots\settings --settings ..\..\shots\settings\test.ini --offline
+# then settings_test_b.txt with the same --settings file (reads it back).
+lookat -74.00753,40.66005,0,330,-30,1800
+wait
+set water off
+set fog off
+set msaa off
+set vsync off
+set cloudhigh off
+set contours on
+key H                # HUD hidden
+tab weather
+set sections off     # the weather tab's three sections closed
+sleep 0.3
+shot a_state
+quit

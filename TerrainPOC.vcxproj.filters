@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="App">
+      <UniqueIdentifier>{0b6f6a7e-1c43-4f4e-9c55-2f3a8e6b1a01}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Cesium loaders">
+      <UniqueIdentifier>{0b6f6a7e-1c43-4f4e-9c55-2f3a8e6b1a02}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Data">
+      <UniqueIdentifier>{0b6f6a7e-1c43-4f4e-9c55-2f3a8e6b1a03}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Rendering">
+      <UniqueIdentifier>{0b6f6a7e-1c43-4f4e-9c55-2f3a8e6b1a04}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{0b6f6a7e-1c43-4f4e-9c55-2f3a8e6b1a05}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Scripts">
+      <UniqueIdentifier>{0b6f6a7e-1c43-4f4e-9c55-2f3a8e6b1a06}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="UI">
+      <UniqueIdentifier>{0b6f6a7e-1c43-4f4e-9c55-2f3a8e6b1a07}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="UI\imgui">
+      <UniqueIdentifier>{0b6f6a7e-1c43-4f4e-9c55-2f3a8e6b1a08}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\pch.cpp"><Filter>App</Filter></ClCompile>
+    <ClCompile Include="src\main.cpp"><Filter>App</Filter></ClCompile>
+    <ClCompile Include="src\App.cpp"><Filter>App</Filter></ClCompile>
+    <ClCompile Include="src\Config.cpp"><Filter>App</Filter></ClCompile>
+    <ClCompile Include="src\Settings.cpp"><Filter>App</Filter></ClCompile>
+    <ClCompile Include="src\Log.cpp"><Filter>App</Filter></ClCompile>
+    <ClCompile Include="src\TaskProcessor.cpp"><Filter>App</Filter></ClCompile>
+    <ClCompile Include="src\TerrainLoader.cpp"><Filter>Cesium loaders</Filter></ClCompile>
+    <ClCompile Include="src\BuildingsLoader.cpp"><Filter>Cesium loaders</Filter></ClCompile>
+    <ClCompile Include="src\GltfBuilder.cpp"><Filter>Cesium loaders</Filter></ClCompile>
+    <ClCompile Include="src\ElevationService.cpp"><Filter>Data</Filter></ClCompile>
+    <ClCompile Include="src\GeoRef.cpp"><Filter>Data</Filter></ClCompile>
+    <ClCompile Include="src\Ephemeris.cpp"><Filter>Data</Filter></ClCompile>
+    <ClCompile Include="src\HttpAssetAccessor.cpp"><Filter>Data</Filter></ClCompile>
+    <ClCompile Include="src\MvtReader.cpp"><Filter>Data</Filter></ClCompile>
+    <ClCompile Include="src\Grib2.cpp"><Filter>Data</Filter></ClCompile>
+    <ClCompile Include="src\WeatherService.cpp"><Filter>Data</Filter></ClCompile>
+    <ClCompile Include="src\Camera.cpp"><Filter>Rendering</Filter></ClCompile>
+    <ClCompile Include="src\Renderer.cpp"><Filter>Rendering</Filter></ClCompile>
+    <ClCompile Include="src\RendererResources.cpp"><Filter>Rendering</Filter></ClCompile>
+    <ClCompile Include="src\Vessels.cpp"><Filter>Rendering</Filter></ClCompile>
+    <ClCompile Include="src\Ui.cpp"><Filter>UI</Filter></ClCompile>
+    <ClCompile Include="src\AppPanel.cpp"><Filter>UI</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\imgui.cpp"><Filter>UI\imgui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\imgui_draw.cpp"><Filter>UI\imgui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\imgui_tables.cpp"><Filter>UI\imgui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\imgui_widgets.cpp"><Filter>UI\imgui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\backends\imgui_impl_dx11.cpp"><Filter>UI\imgui</Filter></ClCompile>
+    <ClCompile Include="third_party\imgui\backends\imgui_impl_win32.cpp"><Filter>UI\imgui</Filter></ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\pch.h"><Filter>App</Filter></ClInclude>
+    <ClInclude Include="src\App.h"><Filter>App</Filter></ClInclude>
+    <ClInclude Include="src\Config.h"><Filter>App</Filter></ClInclude>
+    <ClInclude Include="src\Settings.h"><Filter>App</Filter></ClInclude>
+    <ClInclude Include="src\Log.h"><Filter>App</Filter></ClInclude>
+    <ClInclude Include="src\TaskProcessor.h"><Filter>App</Filter></ClInclude>
+    <ClInclude Include="src\TerrainLoader.h"><Filter>Cesium loaders</Filter></ClInclude>
+    <ClInclude Include="src\BuildingsLoader.h"><Filter>Cesium loaders</Filter></ClInclude>
+    <ClInclude Include="src\GltfBuilder.h"><Filter>Cesium loaders</Filter></ClInclude>
+    <ClInclude Include="src\ElevationService.h"><Filter>Data</Filter></ClInclude>
+    <ClInclude Include="src\GeoRef.h"><Filter>Data</Filter></ClInclude>
+    <ClInclude Include="src\Ephemeris.h"><Filter>Data</Filter></ClInclude>
+    <ClInclude Include="src\HttpAssetAccessor.h"><Filter>Data</Filter></ClInclude>
+    <ClInclude Include="src\MvtReader.h"><Filter>Data</Filter></ClInclude>
+    <ClInclude Include="src\Grib2.h"><Filter>Data</Filter></ClInclude>
+    <ClInclude Include="src\WeatherService.h"><Filter>Data</Filter></ClInclude>
+    <ClInclude Include="src\CloudFields.h"><Filter>Data</Filter></ClInclude>
+    <ClInclude Include="src\Camera.h"><Filter>Rendering</Filter></ClInclude>
+    <ClInclude Include="src\Renderer.h"><Filter>Rendering</Filter></ClInclude>
+    <ClInclude Include="src\RendererResources.h"><Filter>Rendering</Filter></ClInclude>
+    <ClInclude Include="src\Vessels.h"><Filter>Rendering</Filter></ClInclude>
+    <ClInclude Include="src\Ui.h"><Filter>UI</Filter></ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CopyFileToFolders Include="shaders\Scene.hlsl"><Filter>Shaders</Filter></CopyFileToFolders>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" />
+    <None Include="CLAUDE.md" />
+    <None Include="scripts\build_deps.ps1"><Filter>Scripts</Filter></None>
+    <None Include="scripts\build.ps1"><Filter>Scripts</Filter></None>
+    <None Include="scripts\shots_poi.txt"><Filter>Scripts</Filter></None>
+    <None Include="scripts\nav_test.txt"><Filter>Scripts</Filter></None>
+    <None Include="scripts\scenarios.txt"><Filter>Scripts</Filter></None>
+    <None Include="scripts\flythrough.txt"><Filter>Scripts</Filter></None>
+    <None Include="scripts\regression.txt"><Filter>Scripts</Filter></None>
+    <None Include="scripts\panel_test.txt"><Filter>Scripts</Filter></None>
+    <None Include="scripts\clouds_test.txt"><Filter>Scripts</Filter></None>
+    <None Include="docs\weather_roadmap.md" />
+  </ItemGroup>
+</Project>

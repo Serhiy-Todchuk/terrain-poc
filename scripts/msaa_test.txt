@@ -1,0 +1,39 @@
+# MSAA check: identical views with MSAA off / on (runtime toggle), wireframe
+# lines on a multisampled target, resize with MSAA, then picking on the
+# multisampled depth buffer (expected camera deltas: see nav_test.txt).
+
+lookat -74.00753,40.66005,0,300,-35,400
+wait
+set msaa off
+shot m1_poi_close_off
+set msaa on
+shot m2_poi_close_on
+
+camera -74.04,40.66,18,15,2
+wait
+set msaa off
+shot m3_vessel_eye_off
+set msaa on
+shot m4_vessel_eye_on
+
+lookat -74.0150,40.6620,-9,330,-50,260
+wait
+set wireframe on
+shot m5_seabed_wireframe_msaa
+set wireframe off
+
+size 1280x720
+sleep 0.5
+wait
+shot m6_resized_1280x720
+size 1600x900
+sleep 0.5
+
+# picking: orbit around / zoom towards the point under the screen centre
+lookat -74.00753,40.66005,0,330,-30,1800
+wait
+drag left 800 450 1160 450 30
+wheel 800 450 5
+wait
+shot m7_after_orbit_zoom
+stats

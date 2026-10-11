@@ -1,0 +1,37 @@
+# Building façades / roof imagery: the same views with plain buildings (set
+# facades off) and with procedural façades + roofs from the imagery capture.
+
+# Bush Terminal / Sunset Park, close oblique (low-rise, industrial, shop fronts)
+lookat -74.00753,40.66005,0,300,-35,400
+wait
+set facades off
+shot t1_poi_close_plain
+set facades on
+shot t2_poi_close_facades
+
+# Sunset Park residential blocks, low and oblique
+lookat -74.0090,40.6470,10,60,-12,350
+wait
+shot t3_sunset_park_low
+
+# roofs seen from above (imagery capture on the roofs)
+lookat -74.0060,40.6540,0,0,-75,500
+wait
+set facades off
+shot t4_roofs_plain
+set facades on
+shot t5_roofs_facades
+
+# Lower Manhattan towers (curtain walls, roof imagery faded out)
+lookat -74.0120,40.7080,60,20,-12,900
+wait
+set facades off
+shot t6_fidi_plain
+set facades on
+shot t7_fidi_facades
+
+# POI overview (distance filtering of the window pattern)
+lookat -74.00753,40.66005,0,330,-30,1800
+wait
+shot t8_poi_overview
+stats

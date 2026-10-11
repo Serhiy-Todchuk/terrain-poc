@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <ProjectGuid>{6E4B9C3A-2D71-4F58-9A0E-5B3C7D19E842}</ProjectGuid>
+    <RootNamespace>TerrainPOC</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>false</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup>
+    <!-- Cesium Native + dependencies, built once by scripts\build_deps.ps1 -->
+    <CesiumInstallDir>$(MSBuildThisFileDirectory)deps\install\</CesiumInstallDir>
+    <CesiumLibDir Condition="'$(Configuration)'=='Debug'">$(CesiumInstallDir)debug\lib\</CesiumLibDir>
+    <CesiumLibDir Condition="'$(Configuration)'!='Debug'">$(CesiumInstallDir)lib\</CesiumLibDir>
+    <!-- Dear ImGui sources, fetched by scripts\build_deps.ps1 (-ImGuiOnly) -->
+    <ImGuiDir>$(MSBuildThisFileDirectory)third_party\imgui\</ImGuiDir>
+    <OutDir>$(MSBuildThisFileDirectory)bin\$(Configuration)\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)obj\$(Configuration)\</IntDir>
+    <LocalDebuggerWorkingDirectory>$(OutDir)</LocalDebuggerWorkingDirectory>
+    <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <ConformanceMode>true</ConformanceMode>
+      <AdditionalIncludeDirectories>$(CesiumInstallDir)include;$(MSBuildThisFileDirectory)third_party;$(ImGuiDir);$(ImGuiDir)backends;$(MSBuildThisFileDirectory)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NOMINMAX;WIN32_LEAN_AND_MEAN;_CRT_SECURE_NO_WARNINGS;GLM_FORCE_XYZW_ONLY;GLM_FORCE_EXPLICIT_CTOR;GLM_FORCE_INTRINSICS;GLM_ENABLE_EXPERIMENTAL;SPDLOG_COMPILED_LIB;SPDLOG_FMT_EXTERNAL;SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_DEBUG;LIBASYNC_STATIC;IMGUI_DISABLE_OBSOLETE_FUNCTIONS;IMGUI_IMPL_WIN32_DISABLE_GAMEPAD;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalOptions>/bigobj /utf-8 /Zc:__cplusplus %(AdditionalOptions)</AdditionalOptions>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>false</SDLCheck>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;d3dcompiler.lib;d2d1.lib;dwrite.lib;windowscodecs.lib;winhttp.lib;dbghelp.lib;ws2_32.lib;crypt32.lib;bcrypt.lib;advapi32.lib;user32.lib;ole32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+    <Link>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\pch.cpp">
+      <PrecompiledHeader>Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\App.cpp" />
+    <ClCompile Include="src\AppPanel.cpp" />
+    <ClCompile Include="src\BuildingsLoader.cpp" />
+    <ClCompile Include="src\Camera.cpp" />
+    <ClCompile Include="src\Config.cpp" />
+    <ClCompile Include="src\ElevationService.cpp" />
+    <ClCompile Include="src\Ephemeris.cpp" />
+    <ClCompile Include="src\GeoRef.cpp" />
+    <ClCompile Include="src\GltfBuilder.cpp" />
+    <ClCompile Include="src\Grib2.cpp" />
+    <ClCompile Include="src\HttpAssetAccessor.cpp" />
+    <ClCompile Include="src\Log.cpp" />
+    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\MvtReader.cpp" />
+    <ClCompile Include="src\Renderer.cpp" />
+    <ClCompile Include="src\RendererResources.cpp" />
+    <ClCompile Include="src\Settings.cpp" />
+    <ClCompile Include="src\TaskProcessor.cpp" />
+    <ClCompile Include="src\TerrainLoader.cpp" />
+    <ClCompile Include="src\Ui.cpp" />
+    <ClCompile Include="src\Vessels.cpp" />
+    <ClCompile Include="src\WeatherService.cpp" />
+  </ItemGroup>
+  <!-- Dear ImGui (third-party sources: no pch.h) -->
+  <ItemGroup>
+    <ClCompile Include="third_party\imgui\imgui.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="third_party\imgui\imgui_draw.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="third_party\imgui\imgui_tables.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="third_party\imgui\imgui_widgets.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="third_party\imgui\backends\imgui_impl_dx11.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="third_party\imgui\backends\imgui_impl_win32.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\pch.h" />
+    <ClInclude Include="src\App.h" />
+    <ClInclude Include="src\BuildingsLoader.h" />
+    <ClInclude Include="src\Camera.h" />
+    <ClInclude Include="src\CloudFields.h" />
+    <ClInclude Include="src\Config.h" />
+    <ClInclude Include="src\ElevationService.h" />
+    <ClInclude Include="src\Ephemeris.h" />
+    <ClInclude Include="src\GeoRef.h" />
+    <ClInclude Include="src\GltfBuilder.h" />
+    <ClInclude Include="src\Grib2.h" />
+    <ClInclude Include="src\HttpAssetAccessor.h" />
+    <ClInclude Include="src\Log.h" />
+    <ClInclude Include="src\MvtReader.h" />
+    <ClInclude Include="src\Renderer.h" />
+    <ClInclude Include="src\RendererResources.h" />
+    <ClInclude Include="src\Settings.h" />
+    <ClInclude Include="src\TaskProcessor.h" />
+    <ClInclude Include="src\TerrainLoader.h" />
+    <ClInclude Include="src\Ui.h" />
+    <ClInclude Include="src\Vessels.h" />
+    <ClInclude Include="src\WeatherService.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <CopyFileToFolders Include="shaders\Scene.hlsl">
+      <DestinationFolders>$(OutDir)shaders</DestinationFolders>
+      <FileType>Document</FileType>
+    </CopyFileToFolders>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="README.md" />
+    <None Include="CLAUDE.md" />
+    <None Include="scripts\build_deps.ps1" />
+    <None Include="scripts\build.ps1" />
+    <None Include="scripts\shots_poi.txt" />
+    <None Include="scripts\nav_test.txt" />
+    <None Include="scripts\scenarios.txt" />
+    <None Include="scripts\flythrough.txt" />
+    <None Include="scripts\regression.txt" />
+    <None Include="scripts\panel_test.txt" />
+    <None Include="scripts\clouds_test.txt" />
+    <None Include="docs\weather_roadmap.md" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+
+  <!-- Fail early with a clear message if the dependency build has not been run. -->
+  <Target Name="CheckCesiumNative" BeforeTargets="PrepareForBuild">
+    <Error Condition="!Exists('$(CesiumInstallDir)include\Cesium3DTilesSelection\Tileset.h') Or !Exists('$(CesiumLibDir)Cesium3DTilesSelection.lib')"
+           Text="Cesium Native is not built for $(Configuration). Run once:  powershell -ExecutionPolicy Bypass -File scripts\build_deps.ps1" />
+    <Error Condition="!Exists('$(ImGuiDir)imgui.cpp') Or !Exists('$(ImGuiDir)backends\imgui_impl_dx11.cpp')"
+           Text="Dear ImGui sources are missing. Run once:  powershell -ExecutionPolicy Bypass -File scripts\build_deps.ps1 -ImGuiOnly" />
+  </Target>
+  <!-- Link every static library produced by the dependency build (Cesium Native
+       plus its vcpkg dependencies). Evaluated at build time so the list is
+       always current. -->
+  <Target Name="AddCesiumNativeLibraries" BeforeTargets="ComputeLinkInputsFromProject">
+    <ItemGroup>
+      <Library Include="$(CesiumLibDir)*.lib" />
+    </ItemGroup>
+  </Target>
+</Project>

@@ -1,0 +1,30 @@
+# "Fetch weather here": the weather box (clouds) moves to the camera. Needs the
+# network the first time (the box's HRRR hours are downloaded, ~4 MB per hour);
+# later runs replay from the disk cache. Pinned time, so the shots are repeatable.
+# Run: TerrainPOC.exe --script ..\..\scripts\weather_center_test.txt --shot-dir ..\..\shots\weather_center
+# Expected log: "weather box centred at -71.0589, 42.3601", a cache probe + downloads
+# for the new box, "HRRR @ -71.06, 42.36" in the HUD clouds line; the HUD's
+# box centre back to New York at the end with cached datasets (no download).
+weather 2026101017
+lookat -74.00753,40.66005,0,330,-30,1800
+wait
+tab weather
+set sections off
+set sections on
+shot c1_new_york
+# Boston harbour from 20 km: the box follows the camera (script "weather here"
+# = the panel button), the clouds reload for it
+lookat -71.0589,42.3601,0,0,-60,20000
+weather here
+wait
+shot c2_boston_box
+# the sky from the water: Boston's clouds, drift and shadows
+camera -71.00,42.35,15,300,8
+wait
+shot c3_boston_sky
+# back to the default box: replayed from the disk cache
+lookat -74.00753,40.66005,0,330,-30,1800
+weather center default
+wait
+shot c4_new_york_again
+stats

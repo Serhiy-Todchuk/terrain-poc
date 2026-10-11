@@ -1,0 +1,13 @@
+# Quick regression views (fast when the disk cache is warm)
+lookat -74.00753,40.66005,0,330,-30,1800
+wait
+shot r1_poi_overview
+lookat -74.00753,40.66005,0,300,-35,400
+wait
+shot r2_poi_close
+lookat -73.8300,40.6100,0,0,-60,9000
+wait
+shot r3_jamaica_bay
+lookat -74.0300,40.6500,0,0,-60,35000
+wait
+shot r4_harbor_30km

@@ -1,0 +1,32 @@
+# Streaming-while-moving + memory test: long camera moves across the harbor.
+camera -73.998316,40.647894,900,330,-30
+wait
+stats
+# Over the Upper Bay to Lower Manhattan (mid-flight shot without waiting)
+fly -74.0300,40.6800,400,10,-20 8
+shot f1_arrive_manhattan_nowait
+wait
+shot f2_manhattan_loaded
+stats
+# Down to the Verrazzano Narrows at low altitude
+fly -74.0450,40.6150,150,200,-10 10
+shot f3_narrows_nowait
+wait
+shot f4_narrows_loaded
+stats
+# Across to Jamaica Bay, higher
+fly -73.8500,40.6000,1500,60,-35 10
+wait
+stats
+# Back to the start
+fly -73.998316,40.647894,900,330,-30 10
+wait
+shot f5_back_home
+stats
+# Window resize robustness
+size 1280x720
+wait
+shot f6_resized_1280x720
+size 1600x900
+wait
+stats

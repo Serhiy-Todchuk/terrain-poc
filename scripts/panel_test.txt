@@ -1,0 +1,139 @@
+# Settings panel (Dear ImGui, right) + statistics HUD (left): layout, input
+# routing (window messages: panel first, scene only what the panel leaves),
+# the two tabs (View, Time & weather), state changed by script/keys reflected
+# in the panel, all sections open, the hide / show arrows of both panels, panel
+# hidden (HUD shows the G hint), narrow window (no overlap).
+# Run: TerrainPOC.exe --script ..\..\scripts\panel_test.txt --shot-dir ..\..\shots\panel --offline
+# Pixel positions are for the default 1600x900 window and the default layout
+# (View tab: Layers and Rendering open; Time & weather tab: Time & clouds,
+# History & forecast and Sources open). The weather controls act on the hours in the disk cache (--offline):
+# "next day" needs a cached later day; the history rows assume 2026-10-10 hours.
+
+lookat -74.00753,40.66005,0,330,-30,1800
+wait
+shot p1_default
+
+# --- click / scroll / type go through the window messages like real input
+# Water checkbox: water off, the camera must not orbit
+click 1312 184
+shot p2_click_water_off
+click 1312 184
+# Clouds checkbox: layer off, then on again
+click 1312 236
+shot p2b_click_clouds_off
+click 1312 236
+# Fog (Rendering) off, then on
+click 1312 340
+shot p2f_fog_off
+click 1312 340
+
+# --- Time & weather tab: next day with data (pins the weather time), -1 h, sun
+# at that time, then Now (live again)
+click 1390 54
+sleep 0.3
+shot p2g_weather_tab
+click 1572 131
+wait
+shot p2c_next_day
+click 1319 157       # -1h
+click 1312 184       # Apply to sun on
+wait
+shot p2d_minus_1h_sun
+click 1312 184       # Apply to sun off
+click 1319 105       # Now
+wait
+shot p2e_now_live
+# history / forecast table: pin a cached hour, the table centres on it; the row
+# below (18:00) pins the next hour; +-72 h range
+weather 2026101017
+wait
+shot p2h_history_17
+click 1440 419
+wait
+shot p2i_history_row_18
+click 1330 288
+click 1324 353       # +-72 h
+sleep 0.3
+shot p2j_history_72h
+weather live
+click 1320 54        # back to the View tab
+wait
+
+# wheel over the panel must not zoom; over the scene it zooms
+scroll 1440 300 3
+scroll 700 600 2
+# open the Camera section, pick a view button
+click 1354 496
+click 1366 600       # Jamaica Bay
+wait
+shot p3_view_jamaica_bay
+# go-to field: the digits (1-7 are layer keys) must reach the text field only
+click 1420 657
+type -74.0120,40.7080,60,20,-12,900
+type <enter>
+wait
+shot p4_goto_lower_manhattan
+
+# every section open: camera views / go-to, level of detail, tools (View tab),
+# then the weather tab's sections
+lookat -74.00753,40.66005,0,330,-30,1800
+set sections on
+wait
+shot p5_sections_open
+tab weather
+set sections on
+sleep 0.3
+shot p5b_weather_sections_open
+set sections off
+sleep 0.3
+shot p5c_weather_sections_closed
+set sections on
+tab view
+
+# toggles changed by the script show up in the panel
+set water off
+set contours on
+set facades off
+set fog off
+set shadows off
+set cloudhigh off
+set sun on
+set msaa off
+set vsync off
+sleep 0.3
+shot p6_toggles_changed
+set water on
+set contours off
+set facades on
+set fog on
+set shadows on
+set cloudhigh on
+set sun off
+set msaa on
+set vsync on
+set sections off
+
+# the arrows: hide the panel (its header arrow) and the HUD (the arrow in its
+# box), then both stubs bring them back
+click 1572 27
+click 19 20
+sleep 0.3
+shot p6b_arrows_hidden
+click 1580 16
+click 17 16
+sleep 0.3
+shot p6c_arrows_shown
+
+# G hides the panel; the HUD then shows the hint
+key G
+sleep 0.3
+shot p7_panel_hidden
+key G
+
+# narrow window
+size 1280x720
+wait
+shot p8_1280x720
+size 1600x900
+wait
+stats

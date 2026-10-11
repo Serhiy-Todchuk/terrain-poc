@@ -1,0 +1,22 @@
+# Additional scenarios: vessel's-eye view, high altitude, globe, USGS imagery
+# Run: TerrainPOC.exe --script scripts\scenarios.txt --shot-dir shots
+
+# Bridge-height view across the Upper Bay towards Lower Manhattan
+camera -74.0400,40.6600,18,15,2
+wait
+shot 08_vessel_eye_manhattan
+
+# Low over the Bush Terminal slips (seabed visible through the water)
+camera -74.0135,40.6575,35,40,-25
+wait
+shot 09_low_over_slips
+
+# 30 km altitude over New York Harbor
+lookat -74.0300,40.6500,0,0,-60,35000
+wait
+shot 10_harbor_30km
+
+# Globe view
+lookat -74.0,40.66,0,0,-89,4000000
+wait
+shot 11_globe

@@ -1,0 +1,16 @@
+# Diagnose coastline artifacts seen from 30 km (Jamaica Bay) + water look
+lookat -73.8300,40.6100,0,0,-60,9000
+wait
+shot j1_water_on
+set water off
+set imagery off
+wait
+shot j3_no_imagery
+set water on
+set imagery on
+lookat -74.0300,40.6500,0,0,-60,35000
+wait
+shot j4_harbor_30km
+camera -74.0400,40.6600,18,15,2
+wait
+shot j5_vessel_eye
