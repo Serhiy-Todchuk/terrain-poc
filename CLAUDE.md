@@ -29,6 +29,8 @@ The shell is PowerShell 5.1 (no `&&`; use `;` / `if ($?)`).
 
 ## Rules
 
+- **Git: always commit to `main`** (no feature branches). Never push — the user
+  pushes (the remote asks for a password).
 - **No CMake for the app.** The app is `TerrainPOC.sln` + `TerrainPOC.vcxproj`
   (+ `.filters`), toolset **v143**. CMake is used only inside `build_deps.ps1`
   because Cesium Native ships nothing else. Never add a CMakeLists for the app.
