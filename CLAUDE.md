@@ -61,6 +61,10 @@ The shell is PowerShell 5.1 (no `&&`; use `;` / `if ($?)`).
   `--shader-dir D:\Projects\TerrainPOC\shaders` and press F5 (the build copies
   `shaders\Scene.hlsl` to `bin\<cfg>\shaders`).
 - Do not modify `deps\cesium-native`; work around in app code.
+- License: **Apache-2.0** (`LICENSE` = Cesium Native's text; README § License lists
+  every dependency's license). A new dependency must be Apache-2.0-compatible
+  (Apache, MIT, BSD, ISC, zlib, BSL, public domain) — no GPL / LGPL-only code — and
+  gets a row in that table.
 
 ## Architecture
 

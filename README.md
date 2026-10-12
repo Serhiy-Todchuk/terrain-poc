@@ -234,66 +234,9 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
 * `--screenshot out.png` — waits until **everything** is loaded (HTTP idle,
   worker pool idle, Cesium load queues empty, no pending imagery tiles, for 10
   consecutive frames), saves a PNG, exits (exit code 3 if loading timed out).
-* `--script file.txt --shot-dir dir` — command scripts. Live mouse/keyboard input
-  is ignored while a script runs.
-
-  | Command | |
-  |---|---|
-  | `camera lon,lat,alt,heading,pitch` / `lookat …,range` | place the camera |
-  | `fly lon,lat,alt,heading,pitch seconds` | smooth flight (streaming while moving) |
-  | `wait [timeout]` | wait until all tiles/imagery are loaded |
-  | `shot name` | screenshot to `<shot-dir>/name.png` |
-  | `drag left\|right x0 y0 x1 y1 [steps]` | synthetic orbit / pan through the real handlers |
-  | `wheel x y notches` | synthetic zoom towards a pixel |
-  | `key K`, `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|sunmarch\|multiscatter\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off` | toggles |
-  | `cloudlevel shell\|layers\|satellite\|volumetric\|lit` | the cloud quality level |
-  | `cloudtransparency PCT` | the clouds' transparency, 0..100 % (the panel sliders, `--cloud-transparency`) |
-  | `weather live\|YYYYMMDDHH[MM]\|-N` | the weather time: live, a fixed UTC time or N hours ago (replay / forecast, cross-fades) |
-  | `weather here`, `weather center lon,lat\|default` | move the weather box to the camera / a point / back to New York |
-  | `set sections on\|off` | open / close every section of the shown settings-panel tab (once) |
-  | `tab view\|weather` | select a settings-panel tab |
-  | `click x y`, `scroll x y notches`, `type text` / `type <enter>` | real window messages (panel first, then the scene) |
-  | `netcdf url\|path [variable …]` | log a NetCDF-4 / HDF5 file (variables, decoded statistics) and save PNGs of the named 2D variables (developer tool for the GOES-19 data) |
-  | `goes url\|path …` | the GOES-19 L2 files of one scan on the weather box: navigation checks, the main variable of each product resampled with and without the parallax correction (PNGs with a graticule and coastal landmarks), compared with the HRRR hour loaded for the weather time (developer tool); without arguments: PNGs of the scan the weather service loaded for the weather time (cloud tops, cover, the five CCLC height bands, mask, optical depth) |
-  | `cloudfields` | PNGs of the datasets the clouds show, per layer cover / base / top / optical depth — HRRR at *Layers + wind*, corrected by the GOES-19 scan at *Satellite observed* (developer tool) |
-  | `size WxH`, `sleep s`, `stats`, `log text`, `quit` | misc |
-
-  Included: `scripts\shots_poi.txt` (POI views incl. 1 m contours on land and
-  seabed), `nav_test.txt` (orbit/pan/zoom), `scenarios.txt` (vessel's-eye,
-  30 km, globe), `flythrough.txt` (long flights, cache eviction, resize),
-  `msaa_test.txt` (MSAA off/on comparison), `facades_test.txt` (plain vs
-  textured buildings), `panel_test.txt` (settings panel: clicks, wheel and
-  typing routed panel-vs-scene, both tabs, weather date / time and sun
-  controls, the cloud transparency sliders, the cloud quality combo, the history table, sections, the hide / show arrows, hidden,
-  narrow window), `settings_test_a.txt` + `settings_test_b.txt` (persisted
-  settings: phase A changes the UI and quits with `--settings file`, phase B
-  starts with the same file and shows the restored state, `--hud 1` overriding
-  it), `weather_center_test.txt` (the weather box moved to Boston and back;
-  needs the network once), `clouds_test.txt` (cloud layers from below / 3 km /
-  30 km, each layer alone, shadows on / off, 10 minutes of drift, fog off,
-  sunrise / sunset / night, the weather domain, the simple shell level, live),
-  `netcdf_test.txt` (the HDF5 reader on four GOES-19 cloud products from the
-  NOAA bucket; expected values in its header), `goes_nav_test.txt` (GOES
-  navigation and parallax correction: two scans on the weather box, a clear
-  night for the coastline check, the HRRR hour for comparison; expected values
-  in its header), `goes_source_test.txt` (the GOES-19 scans of the weather
-  service at *Satellite observed*: replays, the previous hour / day, a moved
-  box, idle at *Layers + wind*, live), `goes_test.txt` (HRRR alone vs HRRR
-  corrected by GOES-19: a night and a day case from 700 km, 30 km and the
-  harbour, the levels picked in the Quality combo, the field images of both;
-  replays `--offline`), `volumetric_test.txt` (the *Volumetric* level from the
-  water, below, inside and above the low layer, 30 km, 700 km next to the
-  slabs, each layer alone, drift, fog, transparency, MSAA off, a smaller window,
-  sunset / night, a flight, an A/B of the frame time; replays `--offline`),
-  `lighting_test.txt` (the *Volumetric + light* level: the same views at
-  *Volumetric*, with each improvement alone and with all of them, the panel
-  rows, and the frame time of each improvement; replays `--offline`),
-  `regression.txt`.
-  Screenshots include the HUD and the panel (`--hud 0`, `--panel 0` or
-  `set panel off` for clean scene shots). The clouds are the live weather unless
-  `--weather-time` / `weather` pins a time (`--no-clouds` or `set clouds off`
-  for weather-independent shots); `wait` includes the weather download and the
-  cross-fade.
+* `--script file.txt --shot-dir dir` — runs a command script (see
+  [Script commands](#script-commands) and [Included scripts](#included-scripts)).
+  Live mouse/keyboard input is ignored while a script runs.
 * `--offline` — no network at all: every request is served from the disk cache
   (misses behave like 404). Any area visited once can be replayed offline; the
   clouds show the cached hours around the weather time (the date / time controls
@@ -308,6 +251,76 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   periodic stats (tiles, requests, GPU and process memory), and on a crash a
   symbolized stack trace plus `TerrainPOC_crash.dmp`. The last log line reports
   the number of errors and warnings.
+
+### Script commands
+
+One command per line; `#` starts a comment.
+
+| Command | Effect |
+|---|---|
+| `camera lon,lat,alt,heading,pitch` | place the camera |
+| `lookat lon,lat,alt,heading,pitch,range` | place the camera `range` metres from a point, looking at it |
+| `fly lon,lat,alt,heading,pitch seconds` | smooth flight (streaming while moving) |
+| `wait [timeout]` | wait until everything is loaded: tiles, imagery, the weather download and the cloud cross-fade (exit code 3 on a timeout) |
+| `shot name` | screenshot to `<shot-dir>/name.png` |
+| `drag left\|right x0 y0 x1 y1 [steps]` | synthetic orbit / pan through the real handlers |
+| `wheel x y notches` | synthetic zoom towards a pixel |
+| `set name on\|off` | a toggle, `name` = `terrain` `imagery` `buildings` `water` `vessels` `clouds` `shadows` `cloudlow` `cloudmid` `cloudhigh` `sunmarch` `multiscatter` `sun` `fog` `contours` `hud` `panel` `wireframe` `msaa` `facades` `vsync` |
+| `set sections on\|off` | open / close every section of the shown settings-panel tab (once) |
+| `key K` | the command of a key, as if it was pressed (`key 8`, `key F5`) |
+| `cloudlevel level` | the cloud quality level: `shell`, `layers`, `satellite`, `volumetric` or `lit` |
+| `cloudtransparency PCT` | the clouds' transparency, 0..100 % (the panel sliders, `--cloud-transparency`) |
+| `weather live\|YYYYMMDDHH[MM]\|-N` | the weather time: live, a fixed UTC time or N hours ago (replay / forecast, cross-fades) |
+| `weather here` | move the weather box to the camera |
+| `weather center lon,lat\|default` | move the weather box to a point / back to New York |
+| `tab view\|weather` | select a settings-panel tab |
+| `click x y` | a real mouse click (panel first, then the scene) |
+| `scroll x y notches` | a real mouse-wheel message (panel first, then the scene) |
+| `type text`, `type <enter>` | real keyboard messages (a text field of the panel, else the scene) |
+| `netcdf url\|path [variable …]` | log a NetCDF-4 / HDF5 file (variables, decoded statistics) and save PNGs of the named 2D variables (developer tool for the GOES-19 data) |
+| `goes url\|path …` | the GOES-19 L2 files of one scan on the weather box: navigation checks, the main variable of each product resampled with and without the parallax correction (PNGs with a graticule and coastal landmarks), compared with the HRRR hour loaded for the weather time (developer tool) |
+| `goes` | PNGs of the scan the weather service loaded for the weather time (cloud tops, cover, the five CCLC height bands, mask, optical depth) |
+| `cloudfields` | PNGs of the datasets the clouds show, per layer cover / base / top / optical depth — HRRR at *Layers + wind*, corrected by the GOES-19 scan at *Satellite observed* (developer tool) |
+| `size WxH` | resize the window |
+| `sleep s` | keep rendering for `s` seconds |
+| `stats` | write the statistics to the log |
+| `log text` | write a note to the log |
+| `quit` | exit |
+
+### Included scripts
+
+In `scripts\`, run from the exe's folder, e.g.
+
+```bat
+cd bin\Release
+TerrainPOC.exe --script ..\..\scripts\regression.txt --shot-dir ..\..\shots\reg
+```
+
+| Script | What it covers |
+|---|---|
+| `regression.txt` | four key views — run after every change |
+| `shots_poi.txt` | POI views incl. 1 m contours on land and seabed |
+| `nav_test.txt` | orbit / pan / zoom |
+| `scenarios.txt` | vessel's-eye, 30 km, globe |
+| `flythrough.txt` | long flights, cache eviction, resize |
+| `diag_jamaica.txt` | coastline diagnosis at Jamaica Bay (water and imagery off) |
+| `msaa_test.txt` | MSAA off / on comparison |
+| `facades_test.txt` | plain vs textured buildings |
+| `panel_test.txt` | settings panel: clicks, wheel and typing routed panel-vs-scene, both tabs, weather date / time and sun controls, the cloud transparency sliders, the cloud quality combo, the history table, sections, the hide / show arrows, hidden, narrow window |
+| `settings_test_a.txt`, `settings_test_b.txt` | persisted settings: phase A changes the UI and quits with `--settings file`, phase B starts with the same file and shows the restored state, `--hud 1` overriding it |
+| `weather_center_test.txt` | the weather box moved to Boston and back; needs the network once |
+| `clouds_test.txt` | cloud layers from below / 3 km / 30 km, each layer alone, shadows on / off, 10 minutes of drift, fog off, sunrise / sunset / night, the weather domain, the simple shell level, live |
+| `netcdf_test.txt` | the HDF5 reader on four GOES-19 cloud products from the NOAA bucket; expected values in its header |
+| `goes_nav_test.txt` | GOES navigation and parallax correction: two scans on the weather box, a clear night for the coastline check, the HRRR hour for comparison; expected values in its header |
+| `goes_source_test.txt` | the GOES-19 scans of the weather service at *Satellite observed*: replays, the previous hour / day, a moved box, idle at *Layers + wind*, live |
+| `goes_test.txt` | HRRR alone vs HRRR corrected by GOES-19: a night and a day case from 700 km, 30 km and the harbour, the levels picked in the Quality combo, the field images of both; replays `--offline` |
+| `volumetric_test.txt` | the *Volumetric* level from the water, below, inside and above the low layer, 30 km, 700 km next to the slabs, each layer alone, drift, fog, transparency, MSAA off, a smaller window, sunset / night, a flight, an A/B of the frame time; replays `--offline` |
+| `lighting_test.txt` | the *Volumetric + light* level: the same views at *Volumetric*, with each improvement alone and with all of them, the panel rows, and the frame time of each improvement; replays `--offline` |
+
+Screenshots include the HUD and the panel (`--hud 0`, `--panel 0` or
+`set panel off` for clean scene shots). The clouds are the live weather unless
+`--weather-time` / `weather` pins a time (`--no-clouds` or `set clouds off` for
+weather-independent shots).
 
 ## Measured (RTX 3070 Laptop, 1600×900)
 
@@ -363,4 +376,38 @@ scripts/      build_deps.ps1, build.ps1, harness scripts
 docs/         weather_roadmap.md (live weather / clouds plan and status)
 third_party/  mapbox/earcut.hpp, zlib-ng/, imgui/ (fetched / copied by build_deps.ps1)
 deps/         Cesium Native source, build and install (generated)
+LICENSE       Apache License 2.0
 ```
+
+## License
+
+Copyright 2026 Serhiy Todchuk. The source code in this repository is licensed
+under the [Apache License, Version 2.0](LICENSE) — the license of Cesium Native,
+its main dependency.
+
+No third-party code is stored in the repository; `scripts\build_deps.ps1`
+fetches it, and each component keeps its own license. All of them are
+permissive and compatible with Apache-2.0:
+
+| Component | License |
+|---|---|
+| Cesium Native | Apache-2.0 |
+| Dear ImGui | MIT |
+| Abseil, Draco, KTX-Software, OpenSSL 3, S2 Geometry, ada | Apache-2.0 (ada also MIT) |
+| spdlog, fmt, glm, Async++, meshoptimizer, RapidJSON, libmorton, PicoSHA2, spz, stb | MIT |
+| earcut.hpp | ISC |
+| zlib-ng, zlib, tinyxml2, Blend2D, AsmJit | zlib |
+| libjpeg-turbo, libwebp, modp_b64, zstd | BSD-style (zstd: BSD or GPLv2, used under BSD) |
+| expected-lite | BSL-1.0 |
+| SQLite | public domain |
+
+A binary distribution must include their license texts: `deps\cesium-native\LICENSE`,
+`third_party\imgui\LICENSE.txt` and `share\<port>\copyright` of each vcpkg port
+under `deps\ezvcpkg\…\installed\x64-windows-static-md\` (modp_b64's only points
+to its upstream BSD license).
+
+The data the app downloads at run time is not covered by this license and comes
+with its providers' terms: USGS 3DEP / NAIP and NOAA (BAG, NCEI DEMs, HRRR,
+GOES-19) are US-government public domain; Esri World Imagery has Esri's terms of
+use (see [Known limitations](#known-limitations)); buildings are © OpenStreetMap
+contributors (ODbL) via OpenMapTiles / OpenFreeMap. The HUD shows the credits.
