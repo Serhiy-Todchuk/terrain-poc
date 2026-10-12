@@ -5,11 +5,17 @@
 # shell (HUD "layers    simple shell ..."), clouds 40 % transparent (HUD clouds
 # line, the slider atop the weather tab), contours on, the Time & weather tab with its
 # sections closed, the HUD shown (--hud 1); the log has "Settings: settings ...:
-# N values".
+# N values". Last: the level Volumetric + light with multiple scattering still
+# off (HUD "| volumetric + light (sun march)", the panel row unchecked).
 lookat -74.00753,40.66005,0,330,-30,1800
 wait
 shot b_restored
 tab view
 sleep 0.3
 shot b_restored_view_tab
+tab weather
+set sections on
+cloudlevel lit
+wait
+shot b_restored_lit_toggles
 quit

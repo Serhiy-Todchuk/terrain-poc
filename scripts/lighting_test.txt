@@ -1,0 +1,296 @@
+# Cloud lighting (docs/weather_roadmap.md step 5, the cloud quality level
+# "Volumetric + light"): the volumes of step 4 with the improvements of step 5,
+# each switchable for an A/B of look and cost (panel rows under the Quality
+# combo, keys 9 / 0, script "set sunmarch|multiscatter on|off"):
+#   Sun march            - the optical depth towards the sun marched through the
+#                          layer (self-shadowing) instead of the step-4 estimate
+#   Multiple scattering  - orders of scattering + the deep diffuse light instead
+#                          of the step-4 two-stream light
+# Both off = the level "Volumetric". The views of volumetric_test (2026-10-10
+# 17:05, cumulus under a high deck, GOES-19 scan 17:01; the sun applied at 17:05,
+# at sunset 22:15 and at night 00:05). Images: v* = Volumetric, s* = sun march
+# only, m* = multiple scattering only, l* = both (the level's default). A switch
+# of level or improvement resets the temporal history (no blend of the two).
+# All data is that of volumetric_test: run that once online, this one once
+# online (terrain tiles of the new views), then it replays with --offline.
+# Run: TerrainPOC.exe --script ..\..\scripts\lighting_test.txt --shot-dir ..\..\shots\lighting --offline --no-vsync
+# Expected log: "script cloudlevel: cloud quality Volumetric + light (--cloud-level
+# lit)"; "Settings panel: Sun march off" / "on" after the clicks; the HUD line
+# "layers ... | volumetric + light (sun march, multiple scattering)"; 0 errors,
+# 0 warnings. A/B (RTX 3070 Laptop, 1600x900, 4x MSAA, --no-vsync, the "stats"
+# lines after each "A/B" note, in the order volumetric, sun march, multiple
+# scattering, both, twice): both cost ~0.8 ms from the water and ~0.65 ms at
+# 30 km more than Volumetric, nearly all of it the sun march; multiple
+# scattering alone is within the noise (runs differ with the GPU clocks).
+
+weather 202610101705
+set panel off
+
+# From the water towards the sun (the fixed sun, 45 deg up from 215 deg):
+# silver linings, darker cores
+camera -74.0400,40.6600,18,215,12
+cloudlevel volumetric
+wait
+shot v1_water_towards_sun
+cloudlevel lit
+set sunmarch on
+set multiscatter off
+wait
+shot s1_water_towards_sun
+set sunmarch off
+set multiscatter on
+wait
+shot m1_water_towards_sun
+set sunmarch on
+wait
+shot l1_water_towards_sun
+
+# Above the low layer: billows with shaded troughs, cumulus with darker bases
+camera -74.0300,40.5800,3000,20,-8
+cloudlevel volumetric
+wait
+shot v2_above_low_layer
+cloudlevel lit
+set sunmarch on
+set multiscatter off
+wait
+shot s2_above_low_layer
+set sunmarch off
+set multiscatter on
+wait
+shot m2_above_low_layer
+set sunmarch on
+wait
+shot l2_above_low_layer
+
+# 30 km: sides facing the sun (south-west, bottom left) bright, the others grey
+lookat -74.0300,40.6500,0,0,-60,35000
+cloudlevel volumetric
+wait
+shot v3_30km
+cloudlevel lit
+set sunmarch on
+set multiscatter off
+wait
+shot s3_30km
+set sunmarch off
+set multiscatter on
+wait
+shot m3_30km
+set sunmarch on
+wait
+shot l3_30km
+set cloudmid off
+set cloudhigh off
+cloudlevel volumetric
+wait
+shot v4_30km_low
+cloudlevel lit
+wait
+shot l4_30km_low
+set cloudmid on
+set cloudhigh on
+
+# From the water with the sun behind, looking up from below the low layer
+camera -74.0400,40.6600,18,15,10
+cloudlevel volumetric
+wait
+shot v5_water
+cloudlevel lit
+wait
+shot l5_water
+camera -74.0075,40.6600,30,330,55
+cloudlevel volumetric
+wait
+shot v6_looking_up
+cloudlevel lit
+wait
+shot l6_looking_up
+
+# The whole box from 700 km (the cover per layer as at Volumetric)
+lookat -74.0,40.66,0,0,-89,700000
+cloudlevel volumetric
+wait
+shot v7_domain
+cloudlevel lit
+wait
+shot l7_domain
+
+# The sun at the weather time: 17:05 (41 deg up, south), sunset 22:15, night
+# 00:05 (no sun: both levels alike)
+set sun on
+lookat -74.0300,40.6500,0,0,-60,35000
+cloudlevel volumetric
+wait
+shot v8_30km_sun_applied
+cloudlevel lit
+wait
+shot l8_30km_sun_applied
+weather 202610102215
+camera -74.0400,40.6600,18,250,8
+cloudlevel volumetric
+wait
+shot v9_sunset
+cloudlevel lit
+wait
+shot l9_sunset
+camera -74.0300,40.5800,3000,250,-4
+cloudlevel volumetric
+wait
+shot v10_sunset_3km
+cloudlevel lit
+wait
+shot l10_sunset_3km
+weather 202610110005
+camera -74.0150,40.6400,250,330,-12
+cloudlevel volumetric
+wait
+shot v11_night
+cloudlevel lit
+wait
+shot l11_night
+set sun off
+weather 202610101705
+
+# The panel at this level (Time & weather tab): the two improvement rows under
+# the Quality combo; real clicks on Sun march (off, on again); key 0 toggles
+# multiple scattering (HUD: "volumetric + light (sun march)"); key 8 wraps
+# around to Simple shell (the rows disappear)
+camera -74.0300,40.5800,3000,20,-8
+set panel on
+tab weather
+wait
+shot l12_panel
+click 1334 288      # Sun march off
+wait
+shot s12_panel_sun_march_off
+click 1334 288      # Sun march on
+key 0
+wait
+shot l13_key0_multiple_scattering_off
+key 0
+key 8
+wait
+shot l14_key8_shell
+cloudlevel lit
+set panel off
+
+# A/B of the frame time (meaningful with --no-vsync): volumetric, sun march
+# only, multiple scattering only, both - twice
+camera -74.0400,40.6600,18,15,10
+wait
+log A/B from the water: volumetric, sun march, multiple scattering, both, (again)
+cloudlevel volumetric
+wait
+sleep 2
+stats
+cloudlevel lit
+set multiscatter off
+wait
+sleep 2
+stats
+set sunmarch off
+set multiscatter on
+wait
+sleep 2
+stats
+set sunmarch on
+wait
+sleep 2
+stats
+cloudlevel volumetric
+wait
+sleep 2
+stats
+cloudlevel lit
+set multiscatter off
+wait
+sleep 2
+stats
+set sunmarch off
+set multiscatter on
+wait
+sleep 2
+stats
+set sunmarch on
+wait
+sleep 2
+stats
+camera -74.0300,40.5800,3000,20,-8
+wait
+log A/B 3 km: volumetric, sun march, multiple scattering, both, (again)
+cloudlevel volumetric
+wait
+sleep 2
+stats
+cloudlevel lit
+set multiscatter off
+wait
+sleep 2
+stats
+set sunmarch off
+set multiscatter on
+wait
+sleep 2
+stats
+set sunmarch on
+wait
+sleep 2
+stats
+cloudlevel volumetric
+wait
+sleep 2
+stats
+cloudlevel lit
+set multiscatter off
+wait
+sleep 2
+stats
+set sunmarch off
+set multiscatter on
+wait
+sleep 2
+stats
+set sunmarch on
+wait
+sleep 2
+stats
+lookat -74.0300,40.6500,0,0,-60,35000
+wait
+log A/B 30 km: volumetric, sun march, multiple scattering, both, (again)
+cloudlevel volumetric
+wait
+sleep 2
+stats
+cloudlevel lit
+set multiscatter off
+wait
+sleep 2
+stats
+set sunmarch off
+set multiscatter on
+wait
+sleep 2
+stats
+set sunmarch on
+wait
+sleep 2
+stats
+cloudlevel volumetric
+wait
+sleep 2
+stats
+cloudlevel lit
+set multiscatter off
+wait
+sleep 2
+stats
+set sunmarch off
+set multiscatter on
+wait
+sleep 2
+stats
+set sunmarch on
+wait
+sleep 2
+stats

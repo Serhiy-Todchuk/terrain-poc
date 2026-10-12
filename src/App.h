@@ -145,6 +145,8 @@ private:
   bool _showTerrain = true, _showBuildings = true, _showVessels = true, _showClouds = true;
   bool _cloudLayerOn[3] = {true, true, true}; // low / middle / high
   CloudLevel _cloudLevel = CloudLevel::Layers; // cloud quality level (one per roadmap step)
+  bool _cloudSunMarch = true;     // level Volumetric + light: light marched towards the sun (key 9)
+  bool _cloudMultiScatter = true; // level Volumetric + light: orders of multiple scattering (key 0)
   double _cloudAltitude = -1.0;  // all layers at this altitude (m MSL, --cloud-altitude); < 0: per-cell HRRR
   double _cloudTransparency = 0.0; // 0..1, the drawn clouds (panel slider, --cloud-transparency)
   bool _sunFromTime = false;     // "Apply to sun": the sun (and the time-of-day light) at the weather time

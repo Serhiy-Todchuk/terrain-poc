@@ -491,6 +491,24 @@ void App::panelWeather() {
   tooltip("Cloud quality: one level per step of the weather roadmap, each adding to the previous ones; every level "
           "stays selectable for comparison (8 selects the next one)");
   shortcut("8");
+  // The improvements of the level Volumetric + light, each switchable for an A/B
+  // of look and cost (both off = Volumetric). Shown at that level only, so the
+  // rows below keep their place at the other levels.
+  if (_cloudLevel >= CloudLevel::Lit) {
+    ImGui::Indent();
+    toggle("Sun march", &_cloudSunMarch, "9",
+           "Light marched towards the sun through the layer: from every sample of the volumes a few samples "
+           "towards the sun measure the cloud in the way (self-shadowing: sides facing the sun bright, far sides "
+           "and bases darker, clouds shading their neighbours). Off: the step-4 estimate (the layer's optical "
+           "depth above the sample)",
+           _showClouds);
+    toggle("Multiple scattering", &_cloudMultiScatter, "0",
+           "Orders of multiple scattering (each order dimmer, reaching deeper, less forward) + the deep diffuse "
+           "light of a thick cloud: bright sunlit sides, darker shaded ones, a silver lining towards the sun. "
+           "Off: the step-4 two-stream light",
+           _showClouds);
+    ImGui::Unindent();
+  }
   ImGui::TextUnformatted("Layers");
   const char* layerNames[kCloudLayerCount] = {"Low", "Mid", "High"};
   const char* layerTips[kCloudLayerCount] = {"Low clouds (below ~3.8 km): base from the HRRR cloud base",

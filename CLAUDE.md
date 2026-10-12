@@ -5,7 +5,7 @@ the app renders a merged **land + seabed** surface of the New York harbor with
 satellite imagery, extruded OSM buildings, an engine-rendered sea surface,
 georeferenced test vessels and live cloud layers from NOAA HRRR (low / middle / high,
 wind drift, cloud shadows; weather date / time, optional sun at that time; plan and
-status: `docs\weather_roadmap.md`, steps 1–4 done (3 = GOES-19 observed clouds, 4 = volumetric clouds), next: step 5 (lighting and scattering)). It is the *online* variant of the PoC described in
+status: `docs\weather_roadmap.md`, steps 1–4 done (3 = GOES-19 observed clouds, 4 = volumetric clouds), step 5 (lighting and scattering) in progress: items 1–2 done (sun march, multiple scattering), next: item 3 (optical depth of low convective clouds)). It is the *online* variant of the PoC described in
 `nyc_geospatial_terrain_poc.md` (D:\Downloads): terrain tiles are generated at
 run time from public web services — **no Cesium ion, no API keys**.
 POI / start view: lon −74.00753296050705, lat 40.66004718826513 (Bush Terminal
@@ -109,7 +109,7 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 | `src/AppPanel.cpp` | `App::drawPanel` (header row with the hide arrow, tab bar) + `drawPanelArrows` (HUD / panel hide-show arrows, `_hudInset`) + `section` (collapsing header with persisted open state) + `panelLayers/Rendering/Camera/Detail/Tools` (tab **View**: toggles with key hints, the cloud transparency slider on the Clouds row (`cloudTransparencySlider`), MSAA combo, fog, vsync, water absorption, contour interval, view presets `kViews`, go-to / copy `--camera`, FOV, fly speed, live terrain/buildings SSE, screenshot, shader reload, log stats) + `panelWeather/History/Sources` (tab **Time & weather**: the same transparency slider above the sections, Now, date combo of days with data + ◀ ▶, time slider over the day's hours with data, ±1 h, Apply to sun, cloud shadows, cloud quality combo, Low/Mid/High; history / forecast table of `WeatherService::catalog()` ±24/48/72 h with a row pinning the time; HRRR facts, catalog / newest run / forecast reach, loaded datasets, status); `currentSettings()` (in App.cpp) = the persisted state; changes logged as `Settings panel: …` |
 | `src/Settings.{h,cpp}` | Persisted UI settings `TerrainPOC.ini` (next to the exe; `--settings file`, `--no-settings`): `Settings::load` (key=value lines into an `AppConfig`, before the command line is applied over it — main.cpp parses argv twice) and `Settings::save` (at `App::shutdown` when `cfg.settingsActive`). The key table lists every persisted field: toggles, MSAA, vsync, tunables, HUD / panel / tab / sections bitmask, history range, window size — not the weather time, not the camera. Harness runs never touch it unless `--settings` is given explicitly |
 | `src/Ui.{h,cpp}` | Dear ImGui plumbing: context (`IniFilename` null), Win32 + DX11 backends, Segoe UI 15 px (fallback: built-in font), dark translucent style, `setScale` (DPI: `ScaleAllSizes` + `FontScaleDpi`), `processMessage`, `wantsMouse/Keyboard`, `newFrame(inputEnabled)` / `endFrame` / `render` |
-| `src/Config.{h,cpp}` | `AppConfig` defaults (incl. the persisted-only fields `imageryOn`, `contourInterval`, `cloudLayers`, `historyHours`, `flySpeed`, `panelTab`, `panelSections`), `CloudLevel` (cloud quality levels shell / layers / satellite / volumetric: `kCloudLevels` id / name / tooltip, `cloudLevelInfo`, `parseCloudLevel`), CLI parsing over a base config, `--help` text, `parseCameraSpec` |
+| `src/Config.{h,cpp}` | `AppConfig` defaults (incl. the persisted-only fields `imageryOn`, `contourInterval`, `cloudLayers`, `historyHours`, `flySpeed`, `panelTab`, `panelSections`), `CloudLevel` (cloud quality levels shell / layers / satellite / volumetric / lit: `kCloudLevels` id / name / tooltip, `cloudLevelInfo`, `parseCloudLevel`), the step-5 improvement toggles (`cloudSunMarch`, `cloudMultiScatter`), CLI parsing over a base config, `--help` text, `parseCameraSpec` |
 | `src/Camera.{h,cpp}` | ECEF camera, heading/pitch in local ENU, `apply(CameraSpec)` (eye / look-at), reversed-Z infinite projection, `orbit` / `moveTowards` / `translate`, `rayDirection`, `describe()` (prints `--camera` syntax), `intersectEllipsoid` |
 | `src/TerrainLoader.{h,cpp}` | Custom loader: tile rectangles, children + bounding volumes + geometric error, parent→child source hints (`TileInfo`), `buildTerrainMesh` (border-ring normals, skirts, adaptive diagonals, `_HEIGHT`, `_WATERMASK`) |
 | `src/ElevationService.{h,cpp}` | ImageServer URL building, bsq parsing, source selection per level, NCEI ancestor LRU cache + bilinear `resample`, `isHydroFlat`, **`merge`** (the land/seabed rules), `makeFlatGrid`, `geographicTile` |
@@ -133,7 +133,7 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 | `src/Vessels.{h,cpp}` | Procedural container ship / ferry / tug; ENU placement at sea-surface height |
 | `src/TaskProcessor.{h,cpp}` | `CesiumAsync::ITaskProcessor` thread pool (exceptions logged) |
 | `src/Log.{h,cpp}` | spdlog sinks (file, MSVC, console, counting), named loggers, `HR_OK`, HRESULT/Win32 text, UTF-8/UTF-16 |
-| `shaders/Scene.hlsl` | `VSMain/PSMain` (terrain + meshes), `VSSky/PSSky`, `VSWater/PSWater`, `PSClouds` (full-screen, with `VSSky`), `CSBlendClouds`, `CSCloudShadow`, volumetric clouds (`CSNoiseShape`/`CSNoiseDetail` (tiling Perlin-Worley / Worley 3D noise), `PSCloudMarch` → `PSCloudTemporal` → `PSCloudComposite`, `SampleVolume`, `VolumeLight`); time-of-day light (`SunColor`, `SkyLight`, `ImageryLight`), cloud functions (`LayerAmount(At)`, `CloudTransmission`, `CloudShadow`, `TraceLayer`, `HeightAt`); cbuffers mirror `Renderer::FrameConstants/DrawConstants/CloudBlendConstants/CloudVolumeConstants` |
+| `shaders/Scene.hlsl` | `VSMain/PSMain` (terrain + meshes), `VSSky/PSSky`, `VSWater/PSWater`, `PSClouds` (full-screen, with `VSSky`), `CSBlendClouds`, `CSCloudShadow`, volumetric clouds (`CSNoiseShape`/`CSNoiseDetail` (tiling Perlin-Worley / Worley 3D noise), `PSCloudMarch` → `PSCloudTemporal` → `PSCloudComposite`, `SampleVolume`, light: `MacroSunDepth` / `SunOpticalDepth` (step 5 sun march) → `VolumeLightTwoStream` / `VolumeLightOrders` (step 5 multiple scattering) + `VolumeSkyLight`); time-of-day light (`SunColor`, `SkyLight`, `ImageryLight`), cloud functions (`LayerAmount(At)`, `CloudTransmission`, `CloudShadow`, `TraceLayer`, `HeightAt`); cbuffers mirror `Renderer::FrameConstants/DrawConstants/CloudBlendConstants/CloudVolumeConstants` |
 | `docs/weather_roadmap.md` | Weather / clouds roadmap: data facts (NOMADS, GRIB2, GOES-19 L2), steps 1–4 as built (HRRR shell, layers + wind, GOES-19, volumetric), steps 5–6 plan (lighting, 3D HRRR) |
 | `scripts/build_deps.ps1` | Clone + build + install Cesium Native (both configs), clone Dear ImGui `v1.92.9b` → `third_party\imgui`, `Copy-VcpkgHeaders` (earcut → `third_party\mapbox`, zlib-ng API → `third_party\zlib-ng`; the lib `zlibstatic-ng.lib` is installed with Cesium) (`-ImGuiOnly`: ImGui + the headers, seconds) |
 | `scripts/build.ps1` | MSBuild via vswhere (`-Config`, `-Rebuild`) |
@@ -384,10 +384,18 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   and their wind fields glide into the new ones (`CloudFrame::glide`, no jump).
 - **Cloud quality levels** (`CloudLevel`, Config.h): one per roadmap step, each adding to
   the previous ones, all kept selectable for comparison — Time & weather combo, key `8` =
-  the next level, script `cloudlevel shell|layers|satellite|volumetric`, `--cloud-level`, persisted
+  the next level, script `cloudlevel shell|layers|satellite|volumetric|lit`, `--cloud-level`, persisted
   `weather.cloud_level` (the legacy key `weather.cloud_single` = shell / layers is still
   read, never written). A new step adds an enum value + a `kCloudLevels` row and tests
   `_cloudLevel >= …`; the level is logged (`… cloud quality … (--cloud-level …)`).
+- **Every improvement under its own toggle** (user rule, 2026-10-12): inside a step's level
+  each improvement must be switchable, so its look and cost can be A/B'd with it off.
+  Step 5 (level `lit`, *Volumetric + light*): a panel row under the Quality combo, shown
+  at that level only (the rows below keep their pixel positions at the other levels), a
+  key, `set <name> on|off`, `--no-cloud-<name>`, a persisted `weather.cloud_<name>` (the
+  five toggle places, see UI), a field in `CloudFrame` → `CloudVolumeConstants::light`,
+  the HUD layers line naming the ones on, a history reset on change; all off = the
+  previous level's image; `lighting_test.txt` shoots and times each alone and all on.
 - **Simple shell** (level `shell`, the step-1 look): emulated on the step-2 pipeline, the
   step-1 code is gone. Slice 3 of each dataset = TCDC at the dataset's `layerAltitude` (uniform), step 1's
   τ heuristic (`CloudFields::singleOpticalDepth`), 100 m thick; `CloudFrame::single` →
@@ -451,10 +459,26 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   > 10°), resize / MSAA change, a frame without the volumes; `computeIdle` waits for
   12 frames (`cloudsSettled`). Wrap sampler s1, noise UAV u4. The noise CS keep their
   Worley loops **rolled** (unrolled: 13 s of runtime compile). `HeightAt` is exact (the
-  old one-step form put samples 2 km too high from 700 km). Light (`VolumeLight`):
-  macro τ to the slab top along the sun + HG lobes + sky by height, thinned near the
-  eroded surface — step 5 replaces it. Cost +0.5–1.5 ms over the slabs (RTX 3070
-  Laptop, 1600×900, 4× MSAA).
+  old one-step form put samples 2 km too high from 700 km). Light: the optical depth
+  towards the sun (`MacroSunDepth`: macro τ to the slab top, thinned near the eroded
+  surface) → `VolumeLightTwoStream` (HG lobes + two-stream diffuse) + `VolumeSkyLight` (by
+  height). Cost +0.5–1.5 ms over the slabs (RTX 3070 Laptop, 1600×900, 4× MSAA).
+- **Volumetric + light** (level `lit`, step 5; `docs\weather_roadmap.md` step 5 as built):
+  Volumetric + two toggles (`CloudFrame::sunMarch / multiScatter` → `gVolumeLight` xy).
+  *Sun march* (key `9`, `set sunmarch`, `--no-cloud-sun-march`, `weather.cloud_sun_march`):
+  `SunOpticalDepth` = 6 density samples towards the sun in the sample's own layer,
+  segments doubling up to 6 km / the slab top, each at its middle (jitter = grain) with a
+  footprint of half the segment, 3 coverage octaves, no detail noise
+  (`SampleVolume(…, octaves, detailOn)`); beyond: the layer's mean transmittance. Cost
+  cuts that took it from +8.5 to +0.8 ms: those cheap samples, the last marched depth
+  reused once the view transmittance < 0.3 (`kSunMarchMinT`), column τ < 2 keeps the macro
+  depth, blended up to τ 4 (`kSunMarchMinTau`; a hard cut made a seam), zero-weight noise
+  octaves / 3D reads skipped. *Multiple scattering* (key `0`, `set multiscatter`,
+  `--no-cloud-multi-scatter`, `weather.cloud_multi_scatter`): `VolumeLightOrders` = 3
+  orders (0.5^i extinction / energy / eccentricity, phases per pixel) × 0.75 + deep
+  diffuse 1 / (1 + 0.15 τ) × 0.5 — same mean brightness from 30 km as Volumetric, more
+  contrast. Sun march alone (two-stream light) looks flatter than Volumetric: the two go
+  together. Cost over Volumetric (both): +0.75 ms water, +1.35 ms 3 km, +0.9 ms 30 km.
 - Sun: fixed (215° / 45° at the POI) or `Ephemeris::sunDirectionEcef(weatherTime)`
   ("Apply to sun"), which also turns on the time-of-day light (`gLight.x`): CPU sky
   colours (`skyColours`), shader `SunColor`/`SkyLight`/`ImageryLight` relative to the
@@ -503,7 +527,8 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
 - DPI: `GetDpiForWindow` at start and `WM_DPICHANGED` → `App::setUiScale`
   (ImGui style/font + HUD font). Vessels and the weather service are always created
   (toggles work after `--no-vessels` / `--no-clouds`); Imagery/Buildings rows are
-  disabled when not created. Keys: `6` clouds, `7` cloud shadows, `8` next cloud quality, `L` Apply to sun,
+  disabled when not created. Keys: `6` clouds, `7` cloud shadows, `8` next cloud quality,
+  `9` / `0` sun march / multiple scattering (level Volumetric + light), `L` Apply to sun,
   `O` fog. Default layout at 1600×900 (panel_test.txt relies on it): header arrow
   (1572, 27), tabs y 54 (View x 1320, Time & weather x 1390). View tab: Layers
   rows y 106…262 (Water 184, Clouds 236 with the transparency slider x ≈ 1372…1566 on
@@ -513,7 +538,9 @@ Loader flow: `loadTileContent` → `ElevationService::fetch` (parallel raster fu
   end x 1345 = 0 %), Now (1319, 131), date ◀ / ▶ 157 (▶ x 1559: the tab scrolls, the
   scrollbar narrows it), −1h / slider / +1h 183, Apply to sun 210,
   Cloud shadows 236, Quality combo (1450, 262) (items Simple shell 288, Layers + wind
-  308, Satellite observed 328, Volumetric 348), Low/Mid/High 288, History header 314 (range
+  308, Satellite observed 328, Volumetric 348, Volumetric + light 368), Low/Mid/High 288
+  (at Volumetric + light only: Sun march (1334, 288), Multiple scattering (1334, 314),
+  everything below 52 px lower), History header 314 (range
   combo (1330, 340), items 365 / 385 / 405, table header 365, rows every 19 px from
   376 with the current hour centred ≈ 452 — lower when the scroll is clamped near the
   newest hours: the next row is hit at y 475 either way), Sources 563. x of the
@@ -563,8 +590,8 @@ CLI: `--camera lon,lat,alt,heading,pitch` | `--lookat lon,lat,alt,heading,pitch,
 `--verbose` (`[D]` lines: every request, tile summaries), `--d3d-debug` (needs the *Graphics Tools* Windows
 feature — not installed on the dev machine), `--hud 0|1`, `--panel 0|1`, `--size WxH`, layer flags
 (`--no-terrain/--no-buildings/--no-water/--no-vessels/--no-clouds`, `--contours`, `--wireframe`,
-`--imagery esri|usgs|none`, `--no-facades`, `--no-fog`, `--no-cloud-shadows`, `--cloud-level shell|layers|satellite|volumetric`,
-`--cloud-transparency PCT`), `--msaa 1|2|4|8`,
+`--imagery esri|usgs|none`, `--no-facades`, `--no-fog`, `--no-cloud-shadows`, `--cloud-level shell|layers|satellite|volumetric|lit`,
+`--no-cloud-sun-march`, `--no-cloud-multi-scatter`, `--cloud-transparency PCT`), `--msaa 1|2|4|8`,
 LOD tunables (`--terrain-sse`, `--terrain-max-level`, `--terrain-grid`, `--buildings-sse`,
 `--imagery-sse`), `--water-clarity`, `--shader-dir`, weather (`--weather-time
 YYYYMMDDHH[MM]|-N|live` = replay / forecast at that UTC time, `--apply-sun` = the sun at
@@ -584,8 +611,8 @@ Script commands (one per line, `#` comments; live input is ignored while a scrip
 | `shot name` | renders a fresh frame (with HUD) and saves `<shot-dir>/name.png` |
 | `drag left\|right x0 y0 x1 y1 [steps]` | synthetic orbit / pan through the real handlers |
 | `wheel x y notches` | synthetic zoom towards a pixel (logs the new `--camera`) |
-| `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off`, `key K` | toggles (`msaa on` = configured count, 4x if started with `--msaa 1`; `sun` = Apply to sun); `key` calls `keyCommand` directly |
-| `cloudlevel shell\|layers\|satellite\|volumetric` | the cloud quality level |
+| `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|sunmarch\|multiscatter\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off`, `key K` | toggles (`msaa on` = configured count, 4x if started with `--msaa 1`; `sun` = Apply to sun; `sunmarch` / `multiscatter` = the step-5 improvements, effective at level `lit`); `key` calls `keyCommand` directly |
+| `cloudlevel shell\|layers\|satellite\|volumetric\|lit` | the cloud quality level |
 | `cloudtransparency PCT` | the drawn clouds' transparency, 0..100 % (the panel sliders; shadows unchanged) |
 | `weather live\|YYYYMMDDHH[MM]\|-N` | the weather time: live / a UTC time to the minute / N hours ago (replay or forecast; cross-fades) |
 | `weather here`, `weather center lon,lat\|default` | move the weather box to the camera (inside the HRRR domain) / a point / back to New York |
@@ -613,7 +640,8 @@ sections of both tabs, script toggles shown, hide / show arrows of both panels, 
 1280×720 no overlap — pixel positions assume 1600×900 and the default layout, see UI),
 `settings_test_a.txt` + `settings_test_b.txt` (persisted settings: A changes the UI and
 quits with `--settings ..\..\shots\settings\test.ini --offline`, B starts with the same
-file + `--hud 1` and shots the restored state; the log says `Settings: … N values`),
+file + `--hud 1` and shots the restored state, last at level `lit` with multiple
+scattering still off; the log says `Settings: … N values`),
 `weather_center_test.txt` (the box moved to Boston from 20 km and the water, back to New
 York from the cache; needs the network once), `clouds_test.txt` (replays 2026-10-10/11 hours: water / overhead / 3 km, cumulus
 shadows on / off, each layer alone at 30 km, 10 min of drift, fog off, sunrise /
@@ -639,9 +667,15 @@ byte-identical to the online run); expected blend lines in its header),
 `volumetric_test.txt` (the level *Volumetric*, step 4: 2026-10-10 17:05 from the water,
 below, inside (2.2 km) and above the low layer, 30 km (each layer alone, 15 min drift, fog
 off, 60 % transparency, MSAA off, 1280×720), 700 km next to the slabs (cover per layer
-agrees), sunset / night with the sun applied, a flight shot without `wait`, key 8 wraps to
-Simple shell, the fourth combo item clicked (1400, 348), an A/B of the frame time; run
-`--offline --no-vsync`; the 22:11 scan once from the network).
+agrees), sunset / night with the sun applied, a flight shot without `wait`, key 8 goes on
+to Volumetric + light, the fourth combo item clicked (1400, 348), an A/B of the frame time; run
+`--offline --no-vsync`; the 22:11 scan once from the network), `lighting_test.txt` (the
+level *Volumetric + light*, step 5: the views of volumetric_test at Volumetric (`v*`), sun
+march only (`s*`), multiple scattering only (`m*`) and both (`l*`; water towards the sun,
+3 km, 30 km), Volumetric vs both elsewhere (water, looking up, 30 km low layer, 700 km,
+the sun applied at 17:05 / sunset / night), the panel rows (Sun march clicked off / on, key
+0, key 8 wraps to Simple shell), A/B of the frame time for each improvement (water, 3 km,
+30 km; expected costs in its header); run `--offline --no-vsync` after volumetric_test).
 Shots include the HUD and the panel (`--panel 0` / `set panel off` for clean scenes).
 
 Exit codes: 0 ok, 1 init failure, 2 bad arguments / `--help`, 3 a `wait` timed out; crash =
@@ -689,8 +723,10 @@ runs at ~15–30 fps while loading.
   quality combo, `Hdf5` reader, fixed-grid navigation + parallax correction (`GoesGrid`),
   `GoesSource` (scans at the level *Satellite observed*), the blend into the HRRR layers
   (`CloudBlend`), the comparison script `goes_test.txt`); step 4 (volumetric clouds, the
-  level *Volumetric*, `volumetric_test.txt`) is done; next: step 5, lighting and
-  scattering (sun samples through the volumes, volumetric shadows).
+  level *Volumetric*, `volumetric_test.txt`) is done; step 5 (lighting and scattering,
+  the level *Volumetric + light*, `lighting_test.txt`) is in progress: sun march and
+  multiple scattering done, each under its own toggle; next: the optical depth of low
+  convective clouds, volumetric cloud shadows, ambient dimming under overcast.
 
 - Known: no tides (sea at NAVD88 0); pier decks absent in bare-earth lidar; Esri
   imagery terms for production (USGS alternative is ~2 m); first visit to an area is

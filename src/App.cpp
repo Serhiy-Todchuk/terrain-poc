@@ -134,6 +134,8 @@ bool App::init() {
     _cloudLayerOn[l] = _cfg.cloudLayers[l];
   }
   _cloudLevel = _cfg.cloudLevel;
+  _cloudSunMarch = _cfg.cloudSunMarch;
+  _cloudMultiScatter = _cfg.cloudMultiScatter;
   _flySpeed = _cfg.flySpeed;
   _historyHours = _cfg.historyHours;
   _panelTab = std::clamp(_cfg.panelTab, 0, 1);
@@ -634,6 +636,8 @@ void App::updateClouds() {
     }
   }
   cf.volumetric = _cloudLevel >= CloudLevel::Volumetric;
+  cf.sunMarch = _cloudLevel >= CloudLevel::Lit && _cloudSunMarch;
+  cf.multiScatter = _cloudLevel >= CloudLevel::Lit && _cloudMultiScatter;
   cf.manualAltitude = _cloudAltitude;
   cf.opacity = float(1.0 - _cloudTransparency);
   _scene.clouds = true;
@@ -864,6 +868,8 @@ void App::keyCommand(int vk) {
   case '6': _showClouds = !_showClouds; break;
   case '7': _scene.cloudShadows = !_scene.cloudShadows; break;
   case '8': setCloudLevel(CloudLevel((int(_cloudLevel) + 1) % kCloudLevelCount), "key 8"); break;
+  case '9': _cloudSunMarch = !_cloudSunMarch; break;
+  case '0': _cloudMultiScatter = !_cloudMultiScatter; break;
   case 'L': _sunFromTime = !_sunFromTime; updateSun(); break;
   case 'O': _scene.fog = !_scene.fog; break;
   case 'C': _scene.contours = !_scene.contours; break;
@@ -1017,6 +1023,8 @@ bool App::setOption(const std::string& name, bool value) {
   else if (name == "cloudlow") _cloudLayerOn[0] = value;
   else if (name == "cloudmid") _cloudLayerOn[1] = value;
   else if (name == "cloudhigh") _cloudLayerOn[2] = value;
+  else if (name == "sunmarch") _cloudSunMarch = value;
+  else if (name == "multiscatter") _cloudMultiScatter = value;
   else if (name == "sun") { _sunFromTime = value; updateSun(); }
   else if (name == "fog") _scene.fog = value;
   else if (name == "water") _scene.water = value;
@@ -1225,11 +1233,11 @@ void App::stepScript(double dt) {
       LOG_I("script cloudtransparency: cloud transparency {:.0f} % (--cloud-transparency {:.0f})", pct, pct);
     }
   } else if (c.verb == "cloudlevel") {
-    // cloudlevel shell | layers | satellite | N : the cloud quality level
+    // cloudlevel shell | layers | satellite | volumetric | lit | N : the cloud quality level
     if (const std::optional<CloudLevel> level = parseCloudLevel(arg(0))) {
       setCloudLevel(*level, "script cloudlevel");
     } else {
-      LOG_E("script[{}]: cloudlevel expects shell, layers, satellite or volumetric", c.line);
+      LOG_E("script[{}]: cloudlevel expects shell, layers, satellite, volumetric or lit", c.line);
     }
   } else if (c.verb == "tab") {
     // tab view | weather : select a settings-panel tab
@@ -1347,6 +1355,8 @@ AppConfig App::currentSettings() const {
     c.cloudLayers[l] = _cloudLayerOn[l];
   }
   c.cloudLevel = _cloudLevel;
+  c.cloudSunMarch = _cloudSunMarch;
+  c.cloudMultiScatter = _cloudMultiScatter;
   c.cloudTransparency = _cloudTransparency;
   c.historyHours = _historyHours;
   c.weatherCenter = _weatherCenter;
@@ -1533,9 +1543,16 @@ std::vector<std::wstring> App::weatherHudLines() const {
     }
     layers += _cloudLayerOn[l] ? "" : " (hidden)";
   }
+  // The level's volumes and, at Volumetric + light, which of its improvements are on.
+  std::string volumes = _cloudLevel >= CloudLevel::Volumetric ? " | volumetric" : "";
+  if (_cloudLevel >= CloudLevel::Lit) {
+    const std::string on = std::string(_cloudSunMarch ? "sun march" : "") +
+                           (_cloudSunMarch && _cloudMultiScatter ? ", " : "") +
+                           (_cloudMultiScatter ? "multiple scattering" : "");
+    volumes += " + light (" + (on.empty() ? std::string("none") : on) + ")";
+  }
   lines.push_back(wformat("layers    %s%s%s%s", layers.c_str(), _cloudAltitude >= 0.0 ? " (manual altitude)" : "",
-                          a.hasWind ? "" : " (no wind data)",
-                          _cloudLevel >= CloudLevel::Volumetric ? " | volumetric" : ""));
+                          a.hasWind ? "" : " (no wind data)", volumes.c_str()));
   goesLine();
   return lines;
 }

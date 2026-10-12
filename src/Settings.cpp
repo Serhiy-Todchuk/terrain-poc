@@ -122,6 +122,8 @@ const std::vector<Key>& keys() {
          return level.has_value();
        },
        [](const AppConfig& c) { return std::string(cloudLevelInfo(c.cloudLevel).id); }},
+      boolKey("weather.cloud_sun_march", &AppConfig::cloudSunMarch),
+      boolKey("weather.cloud_multi_scatter", &AppConfig::cloudMultiScatter),
       // Before the quality levels (2026-10-11): the "Single layer (step-1 look)" toggle.
       {"weather.cloud_single",
        [](AppConfig& c, const std::string& v) {

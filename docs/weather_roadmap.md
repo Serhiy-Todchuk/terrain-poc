@@ -7,7 +7,9 @@ fixed-grid navigation + parallax correction, the GOES source in the weather
 service, the blend into the HRRR layers, the comparison script
 `goes_test.txt`; step 4 = [volumetric clouds](#step-4--procedural-volumetric-clouds):
 the level *Volumetric*, ray marched at half resolution with a temporal
-filter); next: [step 5](#step-5--lighting-and-scattering) — see
+filter); [step 5](#step-5--lighting-and-scattering) in progress (2026-10-12:
+the level *Volumetric + light* with the sun march and multiple scattering, each
+under its own toggle; next: the optical depth of low convective clouds) — see
 [Step 1 — as built](#step-1--as-built) and
 [Step 2 — as built](#step-2--height-aware-layers-motion-shadows-as-built)
 (low / middle / high layers at their own altitudes, wind drift, time blending,
@@ -718,7 +720,7 @@ is unchanged (`CloudFields` stays the only type it sees).
 *Single layer (step-1 look)* checkbox with a combo box of cloud quality levels
 with meaningful names, one per step, each adding to the previous ones — e.g.
 *Simple shell* (step 1), *Layers + wind* (step 2), *Satellite observed*
-(step 3), later *Volumetric* (step 4), *Volumetric + scattering* (step 5). Every
+(step 3), later *Volumetric* (step 4), *Volumetric + light* (step 5). Every
 later step adds its level, so all earlier looks stay selectable for comparison.
 Key `8` cycles the levels; the script command, CLI option and persisted setting
 (`weather.cloud_single` today) become one level value (read the old key as
@@ -860,6 +862,86 @@ gives a physically meaningful extinction scale. Starting point after step 4:
 `VolumeLight` (the macro optical depth to the slab top + an isotropic
 surface-proximity term) is where the marched sun samples go; the low layers'
 HRRR optical depth heuristic is too low for crisp cumulus bases.
+
+Plan, in the order of what shows most (2026-10-12):
+
+1. **Sun march** — samples towards the sun from every march sample
+   (self-shadowing). *Done.*
+2. **Multiple scattering** — orders of scattering + the deep diffuse light,
+   silver lining. *Done* (with item 1: a marched optical depth needs a light
+   model with contrast to show). A "powder" darkening of sunlit edges is not in.
+3. **Optical depth of low convective clouds** — the HRRR heuristic
+   (≈ 3 + 4 per km) is far below a cumulus core's (20–60): the volumes are
+   translucent, so the sun march shades them only mildly. Raise it for low
+   convective layers, or lean on GOES COD by day.
+4. **Volumetric cloud shadows** — the shadow map from the 3D density (summed
+   extinction along the sun) instead of the step-2 2D coverage, so the ground
+   shadows match the volumes; hides the square edge of the map seen from orbit.
+5. **Sky / ambient dimming under overcast**, haze through and around clouds.
+6. **Polish** — blue-noise offsets, cost.
+
+**Rule (requested 2026-10-12): every improvement is under its own toggle**, so
+its look and cost can be compared with it off: a panel row under the Quality
+combo (shown at the level *Volumetric + light* only — the rows below keep their
+places at the other levels, which `panel_test.txt` clicks by pixel), a key, a
+`set` script option, a `--no-cloud-…` option and a persisted setting; the
+temporal history resets when one changes. All off = the level *Volumetric*.
+`lighting_test.txt` shoots and times each one alone and all together.
+
+**As built so far** (2026-10-12, items 1–2; `shaders/Scene.hlsl`
+`SunOpticalDepth`, `VolumeLightOrders`, `PSCloudMarch`; checked by
+`scripts/lighting_test.txt`):
+
+- **Level *Volumetric + light*** (`--cloud-level lit`, script `cloudlevel lit`,
+  the fifth combo item, key `8`): *Volumetric* plus the improvements, each a
+  toggle — *Sun march* (key `9`, `set sunmarch on|off`, `--no-cloud-sun-march`,
+  `weather.cloud_sun_march`) and *Multiple scattering* (key `0`, `set
+  multiscatter on|off`, `--no-cloud-multi-scatter`, `weather.cloud_multi_scatter`),
+  both on by default. `CloudFrame::sunMarch / multiScatter` →
+  `CloudVolumeConstants::light` (b3). The HUD layers line names the ones on:
+  `| volumetric + light (sun march, multiple scattering)`. Switching the level
+  or a toggle resets the temporal history (else the old light lingers ~20 frames).
+- **Sun march** (`SunOpticalDepth`): from a march sample, 6 samples of the
+  density towards the sun inside the sample's own layer, the segments doubling
+  in length (63 parts) up to 6 km or the slab top — the first ~0.1 km (billows
+  shade themselves), the last ~3 km (clouds shade their neighbours); each at its
+  segment's middle (jittered positions left grain the temporal filter did not
+  remove) with a footprint of half the segment (the noise fades like a widening
+  cone), 3 octaves of coverage noise and no detail noise (cheaper than a view
+  sample). Beyond the reach: the layer's mean transmittance (clear and cloudy
+  parts, 1 − cover (1 − e^−τ·path/thickness)). Heights along the sun ray in the
+  cancellation-free form (as `HeightAt`). The layers above stay `LayersAbove`.
+  **Cost cuts** (+8.5 ms → +0.8 ms from the water): the light samples are
+  cheaper (above); once the view transmittance is below 0.3 the last marched
+  depth stands for the samples behind; optically thin layers (column τ < 2,
+  cirrus) keep the step-4 estimate, blended into the marched one up to τ 4 (a
+  hard cut showed a seam where a layer's τ crosses it); noise octaves and 3D
+  noise reads whose weight is 0 are skipped (all levels; the images are
+  unchanged: the step-4 shots differ from before only by the temporal filter's
+  run-to-run noise, mean 0.1–0.4 / 255).
+- **Multiple scattering** (`VolumeLightOrders`): three orders of scattering
+  (Wrenninge 2013) — order i with 0.5^i the extinction, energy and phase
+  eccentricity of the forward / back lobes (0.6 / −0.3) — weight 0.75, plus
+  the deep diffuse light 1 / (1 + 0.15 τ) weight 0.5 (weaker than the slab's
+  two-stream 1 / (1 + 0.11 τ) weight 0.9: light leaks out of a finite cloud).
+  Calibrated so that the mean cloud brightness from 30 km equals *Volumetric*'s
+  (sRGB 202 vs 203) with more contrast (σ 15.1 vs 11.6). The sky light is the
+  step-4 one.
+- **Look** (2026-10-10 17:05, `lighting_test.txt`): from 3 km the low deck gets
+  relief (shaded troughs between the billows, darker bases under lit tops of
+  the cumulus behind); from the water towards the sun, silver linings and
+  darker cores; from 30 km the sides away from the sun turn grey. Sun march
+  alone (with the step-4 light) looks flatter than *Volumetric*: the two-stream
+  diffuse term barely changes for τ < 5; multiple scattering alone (with the
+  step-4 depth) darkens the interiors without direction. Night and the sun at
+  the horizon are unchanged (no sun march when the sun is down).
+- **Cost** (RTX 3070 Laptop, 1600 × 900, 4× MSAA, `--no-vsync`, A/B in one run,
+  two rounds): over *Volumetric* from the water +0.6 ms (sun march) / ±0
+  (multiple scattering) / +0.75 ms (both); 3 km +1.3 / +0.3 / +1.35 ms; 30 km
+  +0.65 / +0.15 / +0.9 ms. Debug: same images, no asserts, no shader warnings.
+- **Known limits**: the HRRR τ of the low layers keeps the cumulus translucent
+  (item 3); the sun samples see only the own layer (other layers by their mean
+  cover); the ground shadows are still the 2D map (item 4).
 
 ## Step 6 — Full 3D HRRR fields (optional)
 

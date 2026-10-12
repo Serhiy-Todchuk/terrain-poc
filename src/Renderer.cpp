@@ -1445,14 +1445,17 @@ void Renderer::drawClouds() {
 }
 
 void Renderer::drawCloudsVolumetric() {
-  // The history continues when the previous frame drew the volumes too and the
-  // camera did not jump (script `camera`, view buttons): moved more than 200 m
-  // (5 % of the altitude higher up) or turned more than 10 degrees.
+  // The history continues when the previous frame drew the volumes too, with
+  // the same light (the levels Volumetric / Volumetric + light), and the camera
+  // did not jump (script `camera`, view buttons): moved more than 200 m (5 % of
+  // the altitude higher up) or turned more than 10 degrees.
   const glm::dvec3 forward = glm::transpose(_viewRotation) * glm::dvec3(0.0, 0.0, -1.0);
   const glm::dvec3 delta = _cameraPosition - _volumePrevCamera;
   const bool jump = glm::length(delta) > std::max(200.0, 0.05 * std::max(_cameraAltitude, 0.0)) ||
                     glm::dot(forward, _volumePrevForward) < std::cos(Math::degreesToRadians(10.0));
-  const bool continued = _volumeFrame == _frameIndex - 1 && _volumeHistoryFrames > 0 && !jump;
+  const glm::vec4 light(_settings.cloud.sunMarch ? 1.0f : 0.0f, _settings.cloud.multiScatter ? 1.0f : 0.0f, 0.0f, 0.0f);
+  const bool continued = _volumeFrame == _frameIndex - 1 && _volumeHistoryFrames > 0 && !jump &&
+                         light == _volumePrevLight;
   _volumeHistoryFrames = continued ? std::min(_volumeHistoryFrames + 1, 1 << 20) : 1;
   // This frame's weight: the plain mean of the frames since the reset, then an
   // exponential average over ~10 frames.
@@ -1466,6 +1469,7 @@ void Renderer::drawCloudsVolumetric() {
   static constexpr glm::vec2 kSubPixel[4] = {{-0.5f, -0.5f}, {0.5f, 0.5f}, {0.5f, -0.5f}, {-0.5f, 0.5f}};
   const glm::vec2 sub = kSubPixel[_frameIndex & 3];
   vc.params = glm::vec4(float(std::fmod(double(_frameIndex) * 0.6180339887498949, 1.0)), sub.x, sub.y, 0.0f);
+  vc.light = light;
   D3D11_MAPPED_SUBRESOURCE mapped{};
   if (!HR_OK(_context->Map(_cloudVolumeCb.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped))) {
     return;
@@ -1537,6 +1541,7 @@ void Renderer::drawCloudsVolumetric() {
   _volumeFrame = _frameIndex;
   _volumePrevCamera = _cameraPosition;
   _volumePrevForward = forward;
+  _volumePrevLight = light;
   _volumePrevViewProj = _proj * glm::dmat4(_viewRotation);
   _volumeDrawn = true;
 }

@@ -5,8 +5,8 @@
 # high deck, GOES-19 scan 17:01) from the water, below, inside and above the low
 # layer, 30 km (each layer alone, drift, fog, transparency, MSAA off, a smaller
 # window), 700 km; the sun applied at sunset and at night; a flight (no wait:
-# the temporal filter while moving); key 8 wraps around to Simple shell; an A/B
-# of the frame time.
+# the temporal filter while moving); key 8 goes on to Volumetric + light (step 5,
+# lighting_test.txt); an A/B of the frame time.
 # Needs the network once (the GOES-19 scan of 22:11 for the sunset, ~9 MB; the
 # other hours and scans are those of clouds_test / goes_test); then it replays
 # with --offline.
@@ -132,10 +132,10 @@ shot v17_after_flight
 wait
 shot v18_after_flight_settled
 
-# Key 8 from Volumetric wraps around to Simple shell
+# Key 8 from Volumetric goes on to Volumetric + light (step 5)
 key 8
 wait
-shot v19_key8_shell
+shot v19_key8_lit
 cloudlevel volumetric
 
 # A/B of the frame time (meaningful with --no-vsync): Satellite observed vs Volumetric

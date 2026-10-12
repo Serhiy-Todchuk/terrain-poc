@@ -107,7 +107,14 @@ conversion. The sea surface is drawn at NAVD88 0 m (≈ local MSL, no tides).
   *Volumetric* (step 4: the same layers ray marched as volumes — 3D noise made on
   the GPU at start gives billows, eroded edges and wisps that drift with the
   layer winds; each column keeps the layer's optical depth; half resolution with
-  a temporal filter, ~0.5–1.5 ms more than the slabs on an RTX 3070 Laptop). **Cloud shadows**: a shadow map of
+  a temporal filter, ~0.5–1.5 ms more than the slabs on an RTX 3070 Laptop) and
+  *Volumetric + light* (step 5, in progress: the volumes lit through themselves.
+  Each improvement has its own toggle so its look and cost can be compared with
+  it off; with all of them off the level looks like *Volumetric*. So far:
+  **Sun march** (key `9`): a few samples towards the sun from every sample
+  measure the cloud in the way. **Multiple scattering** (key `0`): orders of
+  scattering plus the deep diffuse light (bright sunlit sides, silver linings,
+  darker shaded sides). Both together cost ~0.8–1.4 ms more than *Volumetric*). **Cloud shadows**: a shadow map of
   the sun's transmission through all layers over the weather domain, updated
   when the clouds or the sun change, darkens terrain, buildings, vessels, water
   and seabed. **Sun**: optionally at the weather time (solar ephemeris), with a
@@ -161,7 +168,8 @@ bin\Release\TerrainPOC.exe
 * **Wheel**: zoom towards the point under the cursor
 * WASD / QE fly, arrows look, `R` reset view
 * `1` terrain, `2` imagery, `3` buildings, `4` water, `5` vessels, `6` clouds,
-  `7` cloud shadows, `8` next cloud quality level, `L` sun at the
+  `7` cloud shadows, `8` next cloud quality level, `9` / `0` sun march /
+  multiple scattering (at *Volumetric + light*), `L` sun at the
   weather time, `O` fog, `C` 1 m contours,
   `F` wireframe, `M` MSAA on/off, `T` building façades, `H` HUD,
   `G` settings panel, `P` screenshot, `F5` reload shaders, Esc quit
@@ -183,7 +191,9 @@ to the clipboard, field of view, fly speed, terrain / buildings screen-space
 error (live), screenshot, shader reload, stats to the log. **Time & weather**:
 the same cloud transparency slider at the top, *Now* (live), the date (only days with weather data, ◀ ▶), the time of day
 (only hours with data), ±1 h, *Apply to sun*, cloud shadows, the cloud
-quality (*Simple shell* / *Layers + wind* / *Satellite observed* / *Volumetric*), the cloud layers low / middle /
+quality (*Simple shell* / *Layers + wind* / *Satellite observed* / *Volumetric* /
+*Volumetric + light*, the latter with a row per improvement: *Sun march*,
+*Multiple scattering*), the cloud layers low / middle /
 high; **History & forecast** — the hours with data ±24 / 48 /
 72 h around the weather time (UTC, model run, where the data is, cover of the
 low / middle / high layers once a dataset was seen; the current hour is tinted,
@@ -235,8 +245,8 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   | `shot name` | screenshot to `<shot-dir>/name.png` |
   | `drag left\|right x0 y0 x1 y1 [steps]` | synthetic orbit / pan through the real handlers |
   | `wheel x y notches` | synthetic zoom towards a pixel |
-  | `key K`, `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off` | toggles |
-  | `cloudlevel shell\|layers\|satellite\|volumetric` | the cloud quality level |
+  | `key K`, `set terrain\|imagery\|buildings\|water\|vessels\|clouds\|shadows\|cloudlow\|cloudmid\|cloudhigh\|sunmarch\|multiscatter\|sun\|fog\|contours\|hud\|panel\|wireframe\|msaa\|facades\|vsync on\|off` | toggles |
+  | `cloudlevel shell\|layers\|satellite\|volumetric\|lit` | the cloud quality level |
   | `cloudtransparency PCT` | the clouds' transparency, 0..100 % (the panel sliders, `--cloud-transparency`) |
   | `weather live\|YYYYMMDDHH[MM]\|-N` | the weather time: live, a fixed UTC time or N hours ago (replay / forecast, cross-fades) |
   | `weather here`, `weather center lon,lat\|default` | move the weather box to the camera / a point / back to New York |
@@ -275,6 +285,9 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   water, below, inside and above the low layer, 30 km, 700 km next to the
   slabs, each layer alone, drift, fog, transparency, MSAA off, a smaller window,
   sunset / night, a flight, an A/B of the frame time; replays `--offline`),
+  `lighting_test.txt` (the *Volumetric + light* level: the same views at
+  *Volumetric*, with each improvement alone and with all of them, the panel
+  rows, and the frame time of each improvement; replays `--offline`),
   `regression.txt`.
   Screenshots include the HUD and the panel (`--hud 0`, `--panel 0` or
   `set panel off` for clean scene shots). The clouds are the live weather unless
@@ -333,11 +346,12 @@ lists all options (`--terrain-sse`, `--imagery usgs`, `--water-clarity`,
   (~9 MB per scan, every 10 min live: ~54 MB/h); scans of the running hour
   bypass the disk cache, and a finished hour replays offline only after it was
   viewed online once it ended.
-* Volumetric clouds (step 4): lit by an approximation until step 5 (no
-  self-shadowing towards the sun), so cumulus seen from close below look soft;
-  one cloud front per pixel (terrain inside a cloud is not cut); horizon views
-  from inside a layer are sampled coarsely; the cloud shadows are still the 2D
-  map of the layers.
+* Volumetric clouds (step 4): at *Volumetric* lit by an approximation (no
+  self-shadowing towards the sun); at *Volumetric + light* the cumulus still look
+  soft from close below, because HRRR's optical depth for low clouds is far
+  below a real cumulus core's (next step-5 item); one cloud front per pixel
+  (terrain inside a cloud is not cut); horizon views from inside a layer are
+  sampled coarsely; the cloud shadows are still the 2D map of the layers.
 
 ## Layout
 

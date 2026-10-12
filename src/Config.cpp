@@ -43,6 +43,11 @@ constexpr CloudLevelInfo kCloudLevels[kCloudLevelCount] = {
      "Step 4: + the layers as volumes: ray marched through 3D noise (billows, eroded edges, wisps) that drifts "
      "with the wind, the same fields and optical depths; half resolution with a temporal filter. GOES-19 as at "
      "Satellite observed"},
+    {"lit", "Volumetric + light",
+     "Step 5 (in progress): + the volumes lit through themselves, each improvement switchable in the rows below "
+     "(all off = Volumetric): sun march - samples towards the sun measure the cloud in the way (self-shadowing: "
+     "sides facing the sun bright, far sides and bases darker); multiple scattering - orders of scattering + the "
+     "deep diffuse light (silver linings, darker shaded sides)"},
 };
 
 } // namespace
@@ -116,7 +121,7 @@ Data / rendering:
                                default a fixed afternoon sun
   --cloud-altitude m           every cloud layer at this altitude above MSL (default: per-cell
                                HRRR altitudes of the low / middle / high layers)
-  --cloud-level shell|layers|satellite|volumetric
+  --cloud-level shell|layers|satellite|volumetric|lit
                                cloud quality level, one per roadmap step (default layers):
                                shell = step 1, one thin static shell (HRRR total cover at the
                                altitude of the layer mostly seen from below); layers = step 2,
@@ -124,7 +129,12 @@ Data / rendering:
                                step 3, + the GOES-19 scan of the weather time blended into the
                                layers (observed cover, cloud tops, optical depth by day; ~9 MB
                                per scan); volumetric = step 4, + the layers ray marched as
-                               volumes with drifting 3D noise
+                               volumes with drifting 3D noise; lit = step 5, + the volumes lit
+                               through themselves (the improvements below)
+  --no-cloud-sun-march         level lit: no light marched towards the sun through the layer
+                               (the step-4 estimate of the cloud in the way instead)
+  --no-cloud-multi-scatter     level lit: the step-4 two-stream light instead of the orders of
+                               multiple scattering (both off = the level volumetric)
   --cloud-transparency PCT     the drawn clouds' transparency, 0..100 % (default 0: as the
                                weather makes them; their shadows keep their strength)
   --weather-center lon,lat|default
@@ -276,8 +286,12 @@ std::optional<AppConfig> parseCommandLine(int argc, char** argv, const AppConfig
       cfg.cloudTransparency = std::clamp(std::stod(v), 0.0, 100.0) / 100.0;
     } else if (a == "--cloud-level") {
       const std::optional<CloudLevel> level = next(v) ? parseCloudLevel(v) : std::nullopt;
-      if (!level) return fail("--cloud-level expects shell, layers, satellite or volumetric");
+      if (!level) return fail("--cloud-level expects shell, layers, satellite, volumetric or lit");
       cfg.cloudLevel = *level;
+    } else if (a == "--no-cloud-sun-march") {
+      cfg.cloudSunMarch = false;
+    } else if (a == "--no-cloud-multi-scatter") {
+      cfg.cloudMultiScatter = false;
     } else if (a == "--contours") {
       cfg.contours = true;
     } else if (a == "--wireframe") {

@@ -218,9 +218,9 @@ float CloudNoise(float2 p, float fp, int octaves, out float removed)
     float sum = 0.0, amp = 0.5, scale = 1.0, total = 0.0, kept = 0.0;
     [unroll] for (int k = 0; k < 6; ++k)
     {
-        if (k < octaves)
+        float w = k < octaves ? saturate(1.0 / (3.0 * scale * fp) - 1.0) : 0.0; // < ~6 px per wavelength: fade
+        [branch] if (w > 0.0)
         {
-            float w = saturate(1.0 / (3.0 * scale * fp) - 1.0); // fewer than ~6 px per wavelength: fade
             sum += amp * w * GradientNoise(p * scale + float2(k * 17.31, k * 5.73));
             kept += amp * amp * w * w;
         }
@@ -1074,10 +1074,12 @@ float4 PSClouds(SkyOut i, out float depthOut : SV_Depth) : SV_Target
 // phases of the 2D noise. The extinction keeps a full column's optical depth at
 // the layer's (HRRR / GOES), cores stay solid. Where a pixel cannot resolve the
 // noise (far away) the column becomes a veil with the area-mean transmittance.
-// Light (until step 5 marches towards the sun): the two-stream model of the
-// slabs per sample - the macro optical depth up to the slab top along the sun,
-// a forward / back Henyey-Greenstein lobe for the direct part, the sky by
-// height in the slab - thinned near the eroded surface.
+// Light: the two-stream model of the slabs per sample - the optical depth
+// towards the sun, a forward / back Henyey-Greenstein lobe for the direct part,
+// the sky by height in the slab. At the level "Volumetric" (step 4) the optical
+// depth is the macro one up to the slab top, thinned near the eroded surface;
+// at "Volumetric + light" (step 5) it is marched towards the sun through the
+// layer (self-shadowing).
 // Passes: PSCloudMarch (half resolution, the ray through one of its 2x2 pixels
 // and the steps offset differently each frame, up to the farthest scene depth
 // of the 2x2 pixels) -> PSCloudTemporal (the history reprojected with the
@@ -1099,6 +1101,7 @@ cbuffer CloudVolumeConstants : register(b3)
     float4   gPrevDelta;    // xyz: camera - previous camera (ECEF axes, m), w: weight of this frame (1: no history)
     float4   gVolumeSize;   // xy: half-resolution target size, zw: 1 / size
     float4   gVolumeParams; // x: jitter phase of this frame (0..1), yz: sub-pixel ray offset (full-res pixels)
+    float4   gVolumeLight;  // step 5: x sun march, y multiple scattering (1/0)
 };
 
 // Per layer (low / middle / high): size of the noise tiles (km), vertical
@@ -1245,11 +1248,16 @@ struct VolumeSample
     float amount; // the column's coverage (0..1)
     float tau;    // in-cloud optical depth of the layer there
     float inside; // how deep below the eroded cloud surface (0 at it .. 1)
+    float cover;  // the layer's cover there (weather field)
+    float top;    // the slab's top (m above the sphere)
+    float thickness; // the slab's thickness (m)
 };
 
 // The density of layer l at a point (rel = point - camera, h = its height above
 // the sphere); fpKm = the size a sample stands for (the noise fades below it).
-VolumeSample SampleVolume(int l, float3 rel, float h, float fpKm)
+// octaves of the 2D coverage noise (4) and the detail noise (on) - the light
+// samples towards the sun take fewer.
+VolumeSample SampleVolume(int l, float3 rel, float h, float fpKm, int octaves, bool detailOn)
 {
     VolumeSample o;
     o.sigma = 0.0;
@@ -1264,11 +1272,14 @@ VolumeSample SampleVolume(int l, float3 rel, float h, float fpKm)
     float2 bt = LayerBaseTop(l, uv); // the slab TraceLayer found (coarse mip)
     float thickness = bt.y - bt.x;
     o.z = (h - bt.x) / thickness;
+    o.cover = cover;
+    o.top = bt.y;
+    o.thickness = thickness;
     [branch] if (cover > 0.002 && o.z > 0.0 && o.z < 1.0)
     {
         float2 km = NoiseKm(lonLat);
         float4 drift = gCloudDrift.SampleLevel(gLinearClamp, float3(uv, l), 0.0);
-        CloudAmount a = LayerAmountAt(l, cover, km, drift, fpKm, 4, kLayerShape[l] * (0.5 - o.z), 0.3);
+        CloudAmount a = LayerAmountAt(l, cover, km, drift, fpKm, octaves, kLayerShape[l] * (0.5 - o.z), 0.3);
         o.amount = a.amount;
         o.tau = field.z;
         [branch] if (a.amount > 0.001)
@@ -1283,20 +1294,25 @@ VolumeSample SampleVolume(int l, float3 rel, float h, float fpKm)
             float tile = kShapeTileKm[l];
             float mip = clamp(log2(fpKm * 128.0 / tile), 0.0, 7.0);
             float resolved = saturate(2.0 - mip / 3.0);
-            float4 sn = VolumeNoise(gNoiseShape, float3(pa, hKm) / tile, float3(pb, hKm) / tile, mip);
-            float shape = saturate(sn.x * 0.8 + (sn.y * 0.5 + sn.z * 0.3 + sn.w * 0.2) * 0.3 - 0.05);
+            float shape = 1.0;
+            [branch] if (resolved > 0.0)
+            {
+                float4 sn = VolumeNoise(gNoiseShape, float3(pa, hKm) / tile, float3(pb, hKm) / tile, mip);
+                shape = saturate(sn.x * 0.8 + (sn.y * 0.5 + sn.z * 0.3 + sn.w * 0.2) * 0.3 - 0.05);
+            }
             float ramp = lerp(1.0, 0.15, resolved);
             float v = a.amount - (1.0 - shape) * kErosion[l] * resolved;
-            [branch] if (v > 0.0 && v < ramp + kDetailErosion[l])
+            float tileD = kDetailTileKm[l];
+            float mipD = clamp(log2(fpKm * 32.0 / tileD), 0.0, 5.0);
+            float detail = detailOn ? saturate(2.0 - mipD / 2.0) : 0.0;
+            [branch] if (v > 0.0 && v < ramp + kDetailErosion[l] && detail > 0.0)
             {
                 // Near the surface the detail carves it: wispy (inverted) towards
                 // the base, cauliflower above.
-                float tileD = kDetailTileKm[l];
-                float mipD = clamp(log2(fpKm * 32.0 / tileD), 0.0, 5.0);
                 float3 dn = VolumeNoise(gNoiseDetail, float3(pa, hKm) / tileD, float3(pb, hKm) / tileD, mipD).xyz;
                 float fine = dn.x * 0.625 + dn.y * 0.25 + dn.z * 0.125;
                 fine = lerp(1.0 - fine, fine, saturate(o.z * 5.0));
-                v -= (1.0 - fine) * kDetailErosion[l] * saturate(2.0 - mipD / 2.0);
+                v -= (1.0 - fine) * kDetailErosion[l] * detail;
             }
             float rho = saturate(v / ramp);
             o.inside = saturate(v * 2.0);
@@ -1313,18 +1329,87 @@ VolumeSample SampleVolume(int l, float3 rel, float h, float fpKm)
     return o;
 }
 
-// Light a sample scatters towards the camera (per unit of its opacity): the
-// sun through the macro optical depth up to the slab top, direct with the
-// phase lobe + diffuse (two-stream), and the sky, more towards the top. Both
-// thinned near the cloud surface (s.inside: billows lit, crevices darker) - an
-// isotropic stand-in for the self-shadowing that step 5 marches towards the sun.
-float3 VolumeLight(VolumeSample s, float sunUp, float3 sunIrr, float3 skyIrr, float phase)
+// Light a sample scatters towards the camera (per unit of its opacity), given
+// the optical depth towards the sun. The sky part: more towards the top,
+// thinned near the cloud surface (s.inside: crevices darker).
+float3 VolumeSkyLight(VolumeSample s, float3 skyIrr)
 {
-    float tauSun = s.tau * saturate(1.0 - s.z) * lerp(0.15, 1.0, s.inside) / max(sunUp, 0.08);
+    return skyIrr * (0.35 + 0.65 * saturate(s.z)) * lerp(1.0, 0.7, s.inside);
+}
+
+// Step 4 (and step 5 with "Multiple scattering" off): the two-stream slab
+// light - the sun direct with the phase lobe + diffuse.
+float3 VolumeLightTwoStream(VolumeSample s, float tauSun, float3 sunIrr, float3 skyIrr, float phase)
+{
     float direct = exp(-tauSun);
     float diffuse = 1.0 / (1.0 + 0.11 * tauSun);
-    return sunIrr * (0.35 * direct * phase + 0.9 * diffuse) +
-           skyIrr * (0.35 + 0.65 * saturate(s.z)) * lerp(1.0, 0.7, s.inside);
+    return sunIrr * (0.35 * direct * phase + 0.9 * diffuse) + VolumeSkyLight(s, skyIrr);
+}
+
+// Step 5 "Multiple scattering": orders of scattering (Wrenninge 2013) - order i
+// with 0.5^i the extinction, energy and phase eccentricity (phases = the
+// pixel's phase of orders 0, 1, 2): sunlit sides bright, a silver lining
+// towards the sun, shaded sides dark - plus the deep diffuse light a thick
+// cloud carries far inside (two-stream, weaker than the slab's: light leaks
+// out of a finite cloud). About the two-stream light's brightness where the
+// camera sees a sunlit surface (optical depth towards the sun ~1-2), brighter
+// right at it, darker deeper in.
+static const float kOrdersWeight = 0.75;
+static const float kDeepWeight = 0.5;
+
+float3 VolumeLightOrders(VolumeSample s, float tauSun, float3 sunIrr, float3 skyIrr, float3 phases)
+{
+    float orders = phases.x * exp(-tauSun) + 0.5 * phases.y * exp(-0.5 * tauSun) + 0.25 * phases.z * exp(-0.25 * tauSun);
+    float deep = 1.0 / (1.0 + 0.15 * tauSun);
+    return sunIrr * (kOrdersWeight * orders + kDeepWeight * deep) + VolumeSkyLight(s, skyIrr);
+}
+
+// Step 4 (and step 5 with "Sun march" off): the optical depth towards the sun
+// from the macro field, the layer's up to the slab top, thinned near the cloud
+// surface (billows lit) - an isotropic stand-in for the self-shadowing.
+float MacroSunDepth(VolumeSample s, float sunUp)
+{
+    return s.tau * saturate(1.0 - s.z) * lerp(0.15, 1.0, s.inside) / max(sunUp, 0.08);
+}
+
+// Step 5 "Sun march": the optical depth towards the sun marched through the
+// sample's own layer - kSunSteps samples of the density, the segments doubling
+// in length up to kSunReach or the slab top (fine near the sample: billows
+// shade themselves; coarse farther: neighbouring clouds), each sampled in its
+// middle (jittered positions left grain the temporal filter did not remove),
+// with a footprint of half its length (the noise fades out like a widening
+// cone) and cheaper than the view samples (3 octaves of coverage noise, no
+// detail noise). Beyond the reach the layer counts by its mean transmittance
+// (clear and cloudy parts, as the far-away veil). The layers above stay the
+// macro estimate (LayersAbove at the entry). rel = point - camera, h = its
+// height above the sphere, s = its sample.
+static const int kSunSteps = 6;
+static const float kSunReach = 6000.0;   // m
+static const float kSunMarchMinT = 0.3;  // view transmittance below which the last marched depth is reused
+// Optically thin layers (cirrus) hardly shade themselves: below this column
+// optical depth the macro estimate, blended into the marched one up to twice it.
+static const float kSunMarchMinTau = 2.0;
+
+float SunOpticalDepth(int l, float3 rel, float h, VolumeSample s, float fpKm, float3 sunEcef)
+{
+    float bb = dot(gCloudOrigin.xyz + rel, sunEcef);
+    float dTop = SunRayToShell(bb, h, s.top);
+    float reach = min(dTop, kSunReach);
+    float rc = gCloudCamera.w + h; // |point - centre|
+    float seg = reach / float((1 << kSunSteps) - 1);
+    float d0 = 0.0, tau = 0.0;
+    [loop] for (int k = 0; k < kSunSteps; ++k)
+    {
+        // Height at distance d along the sun: (hk - h)(2R + h + hk) = d (2 bb + d).
+        float d = d0 + 0.5 * seg;
+        float q = d * (2.0 * bb + d);
+        float hk = h + q / (rc + sqrt(max(rc * rc + q, 0.0)));
+        tau += SampleVolume(l, rel + d * sunEcef, hk, max(fpKm, seg * 0.0005), 3, false).sigma * seg;
+        d0 += seg;
+        seg *= 2.0;
+    }
+    float rest = max(dTop - reach, 0.0) / max(s.thickness, 1.0); // in slab thicknesses
+    return tau - log(max(1.0 - s.cover * (1.0 - exp(-s.tau * rest)), 1e-4));
 }
 
 struct VolumeOut
@@ -1355,7 +1440,11 @@ VolumeOut PSCloudMarch(SkyOut i)
     float pixelAngle = 2.0 * gProjParams.y * gScreen.w; // one full-resolution pixel (rad): the noise LOD
     float jitter = frac(InterleavedGradient(float2(px)) + gVolumeParams.x);
     float cosSun = dot(dir, sunEcef);
-    float phase = 0.8 * PhaseHG(cosSun, 0.6) + 0.2 * PhaseHG(cosSun, -0.3);
+    // Forward / back lobes; the orders of multiple scattering halve the eccentricity.
+    float3 phases = float3(0.8 * PhaseHG(cosSun, 0.6) + 0.2 * PhaseHG(cosSun, -0.3),
+                           0.8 * PhaseHG(cosSun, 0.3) + 0.2 * PhaseHG(cosSun, -0.15),
+                           0.8 * PhaseHG(cosSun, 0.15) + 0.2 * PhaseHG(cosSun, -0.075));
+    bool multiScatter = gVolumeLight.y > 0.5;
 
     float3 color = 0.0;
     float transmittance = 1.0, front = 0.0, gap = 0.0;
@@ -1375,6 +1464,11 @@ VolumeOut PSCloudMarch(SkyOut i)
             float3 sun = kSunTint * SunColor(sunUp) * LayersAbove(l, relEntry, hEntry, sunEcef, sunUp);
             float3 sunIrr = 0.9 * saturate(sunUp) * sun;
             float3 skyIrr = 0.25 * kSunTint * SkyLight(sunUp) + gSkyZenith.rgb * 0.12;
+            // Step 5 "Sun march": the sun marched through the layer (not when it
+            // is down); once the view transmittance is below kSunMarchMinT the
+            // last marched depth stands for the samples behind (they add little).
+            bool marchSun = gVolumeLight.x > 0.5 && max(sunIrr.r, max(sunIrr.g, sunIrr.b)) > 1e-4;
+            float tauMarched = -1.0;
             // Steps: ~8 per slab thickness crossed (>= 25 m), 4..32 per layer (the
             // jitter + temporal filter fill in between).
             float len = t1 - t0;
@@ -1385,12 +1479,22 @@ VolumeOut PSCloudMarch(SkyOut i)
             {
                 float t = t0 + (j + jitter) * dt;
                 float fpKm = max(t * pixelAngle * 0.001, 0.005);
-                VolumeSample s = SampleVolume(l, t * dir, HeightAt(t, b), fpKm);
+                float h = HeightAt(t, b);
+                VolumeSample s = SampleVolume(l, t * dir, h, fpKm, 4, true);
                 [branch] if (s.sigma > 0.0)
                 {
                     float ext = exp(-s.sigma * dt);
                     float fog = (1.0 - exp(-t / gFogParams.x)) * gFogParams.y;
-                    float3 light = VolumeLight(s, sunUp, sunIrr, skyIrr, phase);
+                    float tauSun = MacroSunDepth(s, sunUp);
+                    float marchWeight = saturate(s.tau / kSunMarchMinTau - 1.0); // 0 below, 1 from twice
+                    [branch] if (marchSun && marchWeight > 0.0)
+                    {
+                        [branch] if (transmittance > kSunMarchMinT || tauMarched < 0.0)
+                            tauMarched = SunOpticalDepth(l, t * dir, h, s, fpKm, sunEcef);
+                        tauSun = lerp(tauSun, tauMarched, marchWeight);
+                    }
+                    float3 light = multiScatter ? VolumeLightOrders(s, tauSun, sunIrr, skyIrr, phases)
+                                                : VolumeLightTwoStream(s, tauSun, sunIrr, skyIrr, phases.x);
                     color += transmittance * (1.0 - ext) * lerp(light, gHazeColor.rgb, fog);
                     transmittance *= ext;
                     front = front > 0.0 ? front : t;

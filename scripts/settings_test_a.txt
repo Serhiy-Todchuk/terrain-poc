@@ -11,6 +11,7 @@ set vsync off
 set cloudhigh off
 cloudlevel shell     # the step-1 look (HUD: "simple shell")
 cloudtransparency 40 # HUD clouds line: "40 % transparent"
+set multiscatter off # level Volumetric + light: the sun march alone (phase B's last shot)
 set contours on
 key H                # HUD hidden
 tab weather

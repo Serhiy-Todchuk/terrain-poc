@@ -50,6 +50,13 @@ struct CloudFrame {
   // Step 4: the slabs ray marched as volumes with 3D noise (half resolution +
   // temporal filter, Renderer::drawClouds); the fields and shadows are the same.
   bool volumetric = false;
+  // Step 5 (the level Volumetric + light), each switchable; both off = the
+  // step-4 light. sunMarch: the optical depth towards the sun marched through
+  // the layer (self-shadowing) instead of the macro estimate; multiScatter:
+  // orders of multiple scattering + the deep diffuse light instead of the
+  // two-stream slab light.
+  bool sunMarch = false;
+  bool multiScatter = false;
   float opacity = 1.0f; // the drawn clouds (1 - the panel's transparency); shadows unaffected
 };
 
@@ -179,6 +186,7 @@ private:
     glm::vec4 prevDelta;    // xyz: camera - previous camera (ECEF axes, m), w: weight of this frame (1: no history)
     glm::vec4 size;         // xy: half-resolution target size, zw: 1 / size
     glm::vec4 params;       // x: jitter phase of this frame (0..1), yz: sub-pixel ray offset (full-res pixels)
+    glm::vec4 light;        // step 5: x sun march, y multiple scattering (1/0)
   };
   struct DrawConstants {
     glm::mat4 modelView;
@@ -301,6 +309,7 @@ private:
   bool _volumeDrawn = false;    // the last frame drew the volumes
   int64_t _volumeFrame = -1;    // frame index of the last volumetric draw
   glm::dvec3 _volumePrevCamera{0.0}, _volumePrevForward{0.0};
+  glm::vec4 _volumePrevLight{0.0f}; // the light of the last volumetric draw (CloudVolumeConstants::light)
   glm::dmat4 _volumePrevViewProj{1.0}; // previous projection x rotation-only view
   int64_t _frameIndex = 0;
   glm::dvec3 _cameraPosition{0.0}; // this frame's camera (beginFrame)

@@ -21,8 +21,9 @@ enum class CloudLevel : int {
   Layers, // step 2: low / middle / high slabs at per-cell altitudes, drifting with the wind
   Satellite, // step 3: + the GOES-19 scan of the weather time blended into the HRRR layers (CloudBlend)
   Volumetric, // step 4: + the slabs ray marched as volumes with 3D noise (half resolution, temporal filter)
+  Lit,        // step 5: + the volumes lit through themselves (samples towards the sun: self-shadowing)
 };
-constexpr int kCloudLevelCount = 4;
+constexpr int kCloudLevelCount = 5;
 
 struct CloudLevelInfo {
   const char* id;      // command line, script and settings value
@@ -82,6 +83,10 @@ struct AppConfig {
   bool cloudShadows = true;     // the clouds shade the scene
   bool cloudLayers[3] = {true, true, true}; // low / middle / high layers shown
   CloudLevel cloudLevel = CloudLevel::Layers; // cloud quality level (key 8 cycles)
+  // The improvements of the level "Volumetric + light" (step 5), each switchable
+  // for an A/B of look and cost; all off = the level "Volumetric".
+  bool cloudSunMarch = true;     // the light marched towards the sun through the layer (self-shadowing; key 9)
+  bool cloudMultiScatter = true; // multiple scattering: orders of scattering + the deep diffuse light (key 0)
   double cloudTransparency = 0.0; // 0..1: the drawn clouds see-through (1 = invisible); shadows unchanged
   std::optional<std::pair<double, double>> weatherCenter; // lon, lat of the weather box; nullopt = New York
   int historyHours = 48;        // panel: weather history / forecast table +- hours
